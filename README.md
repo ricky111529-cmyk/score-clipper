@@ -18,7 +18,7 @@
 
 ## 웹앱 (index.html)
 
-- 배포: https://score-clipper-band.vercel.app (Vercel, GitHub main 푸시 시 자동 배포)
+- 배포: https://score-clipper.vercel.app (Vercel, GitHub main 푸시 시 자동 배포)
 - 서버 없는 정적 페이지. 영상은 브라우저 밖으로 전송되지 않음
 - 사용법: 영상 파일 업로드 -> 악보 영역 드래그 지정 -> 추출 -> PNG 다운로드 / PDF 저장 / 인쇄
 - 유튜브 URL 직접 입력은 미지원 (브라우저 보안 제약). yt-dlp 등으로 파일 저장 후 업로드
