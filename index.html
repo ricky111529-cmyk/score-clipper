@@ -112,7 +112,8 @@
   <div id="pages"></div>
   <div class="row">
     <button id="downloadPng" class="primary">PNG 다운로드</button>
-    <button id="printBtn">인쇄 / PDF 저장</button>
+    <button id="downloadPdf" class="primary">PDF 저장</button>
+    <button id="printBtn">인쇄</button>
   </div>
 </section>
 
@@ -311,7 +312,8 @@ async function run() {
     sigs.push({ t: times[i], sig: s, valid: s.white >= MIN_WHITE && s.ink >= MIN_INK });
     if (i % 5 === 0 || i === times.length - 1) {
       setProgress(i / times.length * 80, `프레임 분석 중 ${i + 1}/${times.length}`);
-      await new Promise(r => requestAnimationFrame(r));
+      // rAF는 백그라운드 탭에서 멈추므로 setTimeout으로 UI에 양보
+      await new Promise(r => setTimeout(r, 0));
     }
   }
 
@@ -404,6 +406,48 @@ $("downloadPng").addEventListener("click", () => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }, "image/png");
+});
+
+// jsPDF는 PDF 저장 버튼을 처음 누를 때만 로드 (실패 시 인쇄 버튼으로 대체 안내)
+function ensureJsPDF() {
+  return new Promise((res, rej) => {
+    if (window.jspdf && window.jspdf.jsPDF) return res();
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
+    s.onload = res;
+    s.onerror = () => rej(new Error("jsPDF 로드 실패"));
+    document.head.appendChild(s);
+  });
+}
+
+function buildPdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = 210, pageH = 297, margin = 10, gapMm = 3;
+  const contentW = pageW - margin * 2;
+  let y = margin;
+  for (const p of state.pages) {
+    const hMm = contentW * p.canvas.height / p.canvas.width;
+    if (y > margin && y + hMm > pageH - margin) { doc.addPage(); y = margin; }
+    // PNG 임베드는 PDF가 수십MB로 커져서 고품질 JPEG 사용
+    doc.addImage(p.canvas.toDataURL("image/jpeg", 0.9), "JPEG", margin, y, contentW, hMm);
+    y += hMm + gapMm;
+  }
+  return doc;
+}
+
+$("downloadPdf").addEventListener("click", async () => {
+  if (!state.pages.length) return;
+  const btn = $("downloadPdf");
+  btn.disabled = true; btn.textContent = "PDF 생성 중...";
+  try {
+    await ensureJsPDF();
+    buildPdf().save("full_score.pdf");
+  } catch (e) {
+    alert("PDF 생성에 실패했어요. 인터넷 연결을 확인하거나, 인쇄 버튼에서 대상을 'PDF로 저장'으로 바꿔 저장해 주세요.");
+  } finally {
+    btn.disabled = false; btn.textContent = "PDF 저장";
+  }
 });
 
 $("printBtn").addEventListener("click", () => {
