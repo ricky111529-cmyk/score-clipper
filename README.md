@@ -25,6 +25,21 @@
 - 로컬 실행: `python3 -m http.server 8765` 후 http://localhost:8765
 - 테스트 훅: `?src=파일URL` 쿼리로 자동 로드 (같은 출처 파일)
 
+## 유튜브 링크 모드 (server.py, v3)
+
+브라우저는 유튜브를 직접 못 받으므로(차단), 로컬 서버가 yt-dlp로 대신 받아 웹앱에 넘긴다.
+서버가 감지되면 웹앱 1단계에 링크 입력칸이 자동으로 나타난다 (없으면 파일 업로드만).
+
+```
+./start.sh
+```
+
+- 서버(포트 8765) + Cloudflare Tunnel을 함께 실행. 출력되는
+  `https://xxxx.trycloudflare.com` 주소를 밴드 멤버에게 공유 (재실행 시 주소 바뀜)
+- 필요: `brew install yt-dlp cloudflared` (ffmpeg 포함)
+- 안전장치: 유튜브 링크만 허용, 20분 초과 영상 거부, 캐시 24시간/5GB 제한
+- 맥이 꺼져 있으면 멤버들은 Vercel 주소에서 파일 업로드로 이용 (자동 폴백)
+
 ## CLI (cli/score_stitch.py)
 
 유튜브 URL부터 한 번에 처리할 때 사용 (yt-dlp + ffmpeg 필요).

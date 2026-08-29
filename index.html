@@ -39,6 +39,8 @@
   .row label { font-size: 13px; color: var(--sub); display: flex; gap: 8px; align-items: center; }
   input[type=range] { accent-color: var(--accent); }
   select, input[type=number] { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+  input[type=url] { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px;
+                    flex: 1; min-width: 240px; }
   #seek { flex: 1; min-width: 200px; }
   .mono { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--sub); min-width: 88px; }
   #progressWrap { margin-top: 14px; }
@@ -77,6 +79,11 @@
   <p class="hint">유튜브 영상은 파일로 먼저 저장해 주세요 (yt-dlp, 화면녹화 등). mp4 / webm / mov 지원.</p>
   <div id="drop"><strong>클릭</strong>하거나 영상 파일을 여기로 <strong>드래그</strong></div>
   <input type="file" id="fileInput" accept="video/*">
+  <div class="row" id="urlRow" hidden>
+    <input type="url" id="ytUrl" placeholder="또는 유튜브 링크 붙여넣기 (https://www.youtube.com/...)">
+    <button id="fetchBtn" class="primary">가져오기</button>
+  </div>
+  <div class="hint" id="fetchStatus" style="margin:8px 0 0"></div>
 </section>
 
 <section id="stepCrop" hidden>
@@ -119,7 +126,7 @@
 </section>
 
 </main>
-<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v2.1</footer>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v3</footer>
 <div id="printArea"></div>
 
 <script>
@@ -148,6 +155,47 @@ $("fileInput").addEventListener("change", e => { if (e.target.files[0]) loadFile
 const srcParam = new URLSearchParams(location.search).get("src");
 if (srcParam) {
   fetch(srcParam).then(r => r.blob()).then(b => loadFile(new File([b], "video.mp4", { type: b.type || "video/mp4" })));
+}
+
+// 유튜브 링크 모드: 다운로드 서버(server.py)가 붙어 있을 때만 입력칸 표시
+fetch("/api/health").then(r => { if (r.ok) $("urlRow").hidden = false; }).catch(() => {});
+
+$("fetchBtn").addEventListener("click", fetchFromYoutube);
+$("ytUrl").addEventListener("keydown", e => { if (e.key === "Enter") fetchFromYoutube(); });
+
+async function fetchFromYoutube() {
+  const url = $("ytUrl").value.trim();
+  const st = $("fetchStatus");
+  if (!/^https?:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//.test(url)) {
+    st.textContent = "유튜브 링크를 확인해 주세요."; return;
+  }
+  $("fetchBtn").disabled = true;
+  try {
+    const res = await fetch("/api/fetch", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const { job, error } = await res.json();
+    if (!res.ok) throw new Error(error || "요청 실패");
+    let info;
+    while (true) {
+      await new Promise(r => setTimeout(r, 1000));
+      info = await (await fetch("/api/fetch/" + job)).json();
+      if (info.status === "error") throw new Error(info.error || "다운로드 실패");
+      if (info.status === "done") break;
+      st.textContent = info.status === "downloading"
+        ? `서버에서 다운로드 중 ${Math.round(info.pct || 0)}%` + (info.title ? ` · ${info.title}` : "")
+        : "대기 중...";
+    }
+    st.textContent = "영상 전송 중...";
+    const blob = await (await fetch("/api/file/" + info.file)).blob();
+    loadFile(new File([blob], (info.title || "video") + ".mp4", { type: "video/mp4" }));
+    st.textContent = "";
+  } catch (e) {
+    st.textContent = "실패: " + e.message;
+  } finally {
+    $("fetchBtn").disabled = false;
+  }
 }
 
 function loadFile(file) {
