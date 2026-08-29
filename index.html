@@ -92,6 +92,7 @@
 
 <section id="stepRun" hidden>
   <h2><span class="step">3</span>추출</h2>
+  <p class="hint">현재 마디를 따라다니는 하이라이트·커서가 있는 영상도 OK: 여러 프레임을 합성해 표시를 지우고 깨끗한 악보만 남깁니다.</p>
   <div class="row">
     <label>샘플 간격
       <select id="interval"><option value="0.25">0.25초 (정밀)</option><option value="0.5" selected>0.5초 (권장)</option><option value="1">1초 (빠름)</option></select>
@@ -252,7 +253,8 @@ $("sens").addEventListener("input", e => $("sensLabel").textContent = e.target.v
 $("runBtn").addEventListener("click", run);
 $("cancelBtn").addEventListener("click", () => { state.cancelled = true; });
 
-const SIG_W = 160, MIN_WHITE = 0.70, MIN_INK = 0.005, MIN_RUN = 2;
+// MIN_WHITE는 진한 마디 하이라이트가 있어도 악보로 인식되게 여유 있게 잡는다
+const SIG_W = 160, SEGS = 8, FLIP_SEGS = 5, MIN_WHITE = 0.55, MIN_INK = 0.005, MIN_RUN = 2;
 
 function makeSig(srcCanvas) {
   const th = Math.max(8, Math.round(srcCanvas.height * SIG_W / srcCanvas.width));
@@ -272,18 +274,58 @@ function makeSig(srcCanvas) {
   return { gray, white: white / n, ink: ink / n };
 }
 
-function sigDiff(a, b) {
-  if (a.gray.length !== b.gray.length) return 255;
-  let sum = 0;
-  for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray[i] - b.gray[i]);
-  return sum / a.gray.length;
+// 가로 8구간별 평균 차이. 마디 하이라이트 이동은 1-2구간만, 페이지 넘김은 대부분 구간이 바뀐다.
+function segDiffs(a, b) {
+  const n = a.gray.length;
+  const sums = new Float64Array(SEGS), counts = new Float64Array(SEGS);
+  if (n !== b.gray.length) return Array(SEGS).fill(255);
+  for (let i = 0; i < n; i++) {
+    const s = Math.min(SEGS - 1, Math.floor((i % SIG_W) * SEGS / SIG_W));
+    sums[s] += Math.abs(a.gray[i] - b.gray[i]); counts[s]++;
+  }
+  return Array.from(sums, (v, s) => v / counts[s]);
 }
 
-function grabCrop(video, crop) {
+function isPageFlip(a, b, thr) {
+  // 구간별 문턱은 전역 감도보다 낮게: 음표가 적은 페이지의 넘김도 잡되,
+  // 마디 표시 이동은 최대 3-4구간만 바꾸므로 FLIP_SEGS(5) 밑에 머문다
+  return segDiffs(a, b).filter(d => d > thr * 0.6).length >= FLIP_SEGS;
+}
+
+// 한 페이지 구간의 여러 시점을 픽셀 중앙값으로 합성해 움직이는 마디 표시를 지운다
+async function compositePage(video, crop, times) {
   const c = document.createElement("canvas");
   c.width = crop.w; c.height = crop.h;
-  c.getContext("2d").drawImage(video, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  const frames = [];
+  for (const t of times) {
+    await seekTo(video, t);
+    ctx.drawImage(video, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+    if (times.length > 1) frames.push(ctx.getImageData(0, 0, crop.w, crop.h).data.slice());
+  }
+  if (frames.length <= 1) return c;
+  const out = ctx.createImageData(crop.w, crop.h);
+  const k = frames.length, vals = new Uint8Array(k), mid = k >> 1;
+  for (let i = 0; i < out.data.length; i += 4) {
+    for (let ch = 0; ch < 3; ch++) {
+      for (let j = 0; j < k; j++) {
+        // 삽입 정렬 (k <= 5)
+        let x = frames[j][i + ch], p = j;
+        while (p > 0 && vals[p - 1] > x) { vals[p] = vals[p - 1]; p--; }
+        vals[p] = x;
+      }
+      out.data[i + ch] = (k % 2) ? vals[mid] : (vals[mid - 1] + vals[mid]) >> 1;
+    }
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
   return c;
+}
+
+function pickEven(s, e, m) {
+  const len = e - s + 1;
+  if (len <= m) return Array.from({ length: len }, (_, i) => s + i);
+  return Array.from({ length: m }, (_, i) => s + Math.round(i * (len - 1) / (m - 1)));
 }
 
 async function run() {
@@ -326,12 +368,12 @@ async function run() {
       continue;
     }
     if (runStart === null) runStart = i;
-    else if (sigDiff(sigs[i - 1].sig, sigs[i].sig) > threshold) { runs.push([runStart, i - 1]); runStart = i; }
+    else if (isPageFlip(sigs[i - 1].sig, sigs[i].sig, threshold)) { runs.push([runStart, i - 1]); runStart = i; }
   }
   if (runStart !== null) runs.push([runStart, sigs.length - 1]);
   const good = runs.filter(([s, e]) => e - s + 1 >= MIN_RUN);
 
-  // 2차 통과: 페이지 대표 프레임을 원본 해상도로 확보
+  // 2차 통과: 페이지별로 여러 시점을 중앙값 합성해 원본 해상도로 확보 (마디 표시 제거)
   // 반복 구절은 마디 번호만 달라도 유지해야 하므로 직전 페이지와만 중복 비교
   state.pages = [];
   let prevSig = null;
@@ -339,11 +381,12 @@ async function run() {
     if (state.cancelled) return finish("중단됨", "warn");
     const [s, e] = good[k];
     const mid = sigs[(s + e) >> 1];
-    if (prevSig && sigDiff(mid.sig, prevSig) <= threshold) continue;
+    if (prevSig && !isPageFlip(mid.sig, prevSig, threshold)) continue;
     prevSig = mid.sig;
-    await seekTo(v, mid.t);
-    state.pages.push({ canvas: grabCrop(v, crop), t: mid.t });
-    setProgress(80 + (k + 1) / good.length * 20, `페이지 추출 중 ${k + 1}/${good.length}`);
+    const times = pickEven(s, e, 7).map(i => sigs[i].t);
+    state.pages.push({ canvas: await compositePage(v, crop, times), t: mid.t });
+    setProgress(80 + (k + 1) / good.length * 20, `페이지 합성 중 ${k + 1}/${good.length}`);
+    await new Promise(r => setTimeout(r, 0));
   }
 
   renderPages();

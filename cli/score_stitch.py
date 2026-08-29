@@ -48,6 +48,30 @@ def diff(a, b):
     return float(np.abs(a - b).mean())
 
 
+SEGS = 8        # 가로 분할 수
+FLIP_SEGS = 5   # 이 수 이상 구간이 바뀌면 페이지 넘김
+
+
+def seg_diffs(a, b):
+    """가로 8구간별 평균 차이. 마디 하이라이트 이동은 1-2구간, 페이지 넘김은 대부분 구간이 바뀐다."""
+    d = np.abs(a - b)
+    w = d.shape[1]
+    bounds = [w * i // SEGS for i in range(SEGS + 1)]
+    return [float(d[:, bounds[i]:bounds[i + 1]].mean()) for i in range(SEGS)]
+
+
+def is_page_flip(a, b, thr):
+    # 구간별 문턱은 전역 감도보다 낮게: 음표가 적은 페이지의 넘김도 잡는다
+    return sum(x > thr * 0.6 for x in seg_diffs(a, b)) >= FLIP_SEGS
+
+
+def pick_even(s, e, m):
+    length = e - s + 1
+    if length <= m:
+        return list(range(s, e + 1))
+    return [s + round(i * (length - 1) / (m - 1)) for i in range(m)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
@@ -55,7 +79,7 @@ def main():
     ap.add_argument("--height", type=int, required=True, help="악보 띠 높이(px)")
     ap.add_argument("--fps", type=float, default=2.0)
     ap.add_argument("--out", default="score_out")
-    ap.add_argument("--min-white", type=float, default=0.70, help="악보로 인정할 흰 배경 최소 비율")
+    ap.add_argument("--min-white", type=float, default=0.55, help="악보로 인정할 흰 배경 최소 비율")
     ap.add_argument("--min-ink", type=float, default=0.005, help="악보로 인정할 잉크 최소 비율")
     ap.add_argument("--page-diff", type=float, default=6.0, help="이 값 이상 차이나면 새 페이지")
     ap.add_argument("--min-run", type=int, default=2, help="페이지로 인정할 최소 연속 프레임 수")
@@ -85,7 +109,7 @@ def main():
             continue
         if run_start is None:
             run_start = i
-        elif diff(sigs[i - 1][1], thumb) > args.page_diff:
+        elif is_page_flip(sigs[i - 1][1], thumb, args.page_diff):
             runs.append((run_start, i - 1))
             run_start = i
     if run_start is not None:
@@ -94,23 +118,29 @@ def main():
     runs = [(s, e) for s, e in runs if e - s + 1 >= args.min_run]
     print(f"      페이지 후보 {len(runs)}개")
 
-    print("[3/4] 페이지 대표 프레임 선택 + 중복 제거 ...")
+    print("[3/4] 페이지 합성(마디 표시 제거) + 중복 제거 ...")
     # 반복 구절은 악보 내용이 같아도 마디 번호가 다르므로 페이지로 유지해야 한다.
     # 따라서 전체 비교가 아니라 직전 페이지와만 비교해 글리치로 쪼개진 run만 합친다.
-    pages = []  # (path, thumb)
+    # 페이지마다 최대 7프레임의 픽셀 중앙값을 취해 움직이는 마디 하이라이트를 지운다.
+    pages = []  # (Image, thumb)
     for s, e in runs:
         mid = (s + e) // 2
-        f, thumb, _ = sigs[mid]
-        if pages and diff(thumb, pages[-1][1]) <= args.page_diff:
+        _, thumb, _ = sigs[mid]
+        if pages and not is_page_flip(thumb, pages[-1][1], args.page_diff):
             continue
-        pages.append((f, thumb))
+        stack = np.stack([
+            np.asarray(Image.open(sigs[i][0]).convert("RGB"), dtype=np.uint8)
+            for i in pick_even(s, e, 7)
+        ])
+        comp = Image.fromarray(np.median(stack, axis=0).astype(np.uint8))
+        pages.append((comp, thumb))
     print(f"      최종 페이지 {len(pages)}개")
     if not pages:
         print("악보 페이지를 찾지 못했습니다. --y/--height/--min-white 값을 확인하세요.")
         sys.exit(1)
 
     print("[4/4] 이어붙이는 중 ...")
-    imgs = [Image.open(p) for p, _ in pages]
+    imgs = [p for p, _ in pages]
     w = imgs[0].width
     gap = 6
     total_h = sum(im.height for im in imgs) + gap * (len(imgs) - 1)
