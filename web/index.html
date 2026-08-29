@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Score Clipper - 커버 영상 악보 추출기</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1c2330; --sub: #5b6472;
+    --accent: #2f6fed; --accent-ink: #ffffff; --line: #e3e6ec; --ok: #1a9b5c; --warn: #c2410c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; }
+  header { padding: 28px 24px 8px; max-width: 1040px; margin: 0 auto; }
+  header h1 { margin: 0 0 6px; font-size: 24px; }
+  header p { margin: 0; color: var(--sub); font-size: 14px; line-height: 1.6; }
+  main { max-width: 1040px; margin: 0 auto; padding: 12px 24px 80px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+            padding: 20px; margin-top: 16px; }
+  section[hidden] { display: none; }
+  h2 { margin: 0 0 4px; font-size: 16px; }
+  h2 .step { display: inline-block; background: var(--accent); color: var(--accent-ink);
+             border-radius: 999px; font-size: 12px; padding: 2px 9px; margin-right: 8px; vertical-align: 1px; }
+  .hint { color: var(--sub); font-size: 13px; margin: 4px 0 14px; line-height: 1.6; }
+  button { font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
+           border-radius: 9px; padding: 9px 16px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:disabled { opacity: .45; cursor: default; }
+  #drop { border: 2px dashed var(--line); border-radius: 12px; padding: 40px 20px; text-align: center;
+          color: var(--sub); cursor: pointer; transition: border-color .15s, background .15s; }
+  #drop.over { border-color: var(--accent); background: #eef4ff; }
+  #drop strong { color: var(--ink); }
+  #fileInput { display: none; }
+  .canvas-wrap { position: relative; display: inline-block; max-width: 100%; }
+  #preview { display: block; max-width: 100%; border-radius: 8px; cursor: crosshair; touch-action: none; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .row label { font-size: 13px; color: var(--sub); display: flex; gap: 8px; align-items: center; }
+  input[type=range] { accent-color: var(--accent); }
+  select, input[type=number] { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+  #seek { flex: 1; min-width: 200px; }
+  .mono { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--sub); min-width: 88px; }
+  #progressWrap { margin-top: 14px; }
+  #progressBar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+  #progressFill { height: 100%; width: 0%; background: var(--accent); transition: width .2s; }
+  #status { font-size: 13px; color: var(--sub); margin-top: 8px; }
+  #status.ok { color: var(--ok); font-weight: 600; }
+  #status.warn { color: var(--warn); }
+  #pages { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+  .page { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+  .page img { display: block; width: 100%; }
+  .page .del { position: absolute; top: 6px; right: 6px; background: rgba(28,35,48,.75); color: #fff;
+               border: none; border-radius: 6px; font-size: 12px; padding: 4px 9px; opacity: 0; }
+  .page:hover .del { opacity: 1; }
+  .page .idx { position: absolute; top: 6px; left: 6px; background: rgba(28,35,48,.6); color: #fff;
+               border-radius: 6px; font-size: 11px; padding: 2px 7px; }
+  footer { max-width: 1040px; margin: 0 auto; padding: 0 24px 40px; color: var(--sub); font-size: 12px; line-height: 1.7; }
+  #printArea { display: none; }
+  @media print {
+    body > header, body > main, body > footer { display: none !important; }
+    #printArea { display: block; }
+    #printArea img { width: 100%; margin-bottom: 10px; break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎼 Score Clipper</h1>
+  <p>커버 영상 하단에 4마디씩 나오는 악보를 자동으로 잘라 전체 악보 한 장으로 이어붙입니다.<br>
+     드럼·기타·베이스 등 악보 오버레이가 있는 영상이면 악기 무관. 모든 처리는 이 브라우저 안에서만 이뤄지고 영상이 서버로 전송되지 않습니다.</p>
+</header>
+<main>
+
+<section id="stepFile">
+  <h2><span class="step">1</span>영상 파일 선택</h2>
+  <p class="hint">유튜브 영상은 파일로 먼저 저장해 주세요 (yt-dlp, 화면녹화 등). mp4 / webm / mov 지원.</p>
+  <div id="drop"><strong>클릭</strong>하거나 영상 파일을 여기로 <strong>드래그</strong></div>
+  <input type="file" id="fileInput" accept="video/*">
+</section>
+
+<section id="stepCrop" hidden>
+  <h2><span class="step">2</span>악보 영역 지정</h2>
+  <p class="hint">아래 화면에서 악보 띠를 <strong>드래그로 감싸</strong> 주세요. 슬라이더로 다른 시점을 미리 볼 수 있습니다. (기본값: 화면 하단 13%)</p>
+  <div class="canvas-wrap"><canvas id="preview"></canvas></div>
+  <div class="row">
+    <input type="range" id="seek" min="0" max="100" step="0.1" value="15">
+    <span class="mono" id="seekLabel">0:00</span>
+    <button id="presetBottom">하단 13% 프리셋</button>
+  </div>
+</section>
+
+<section id="stepRun" hidden>
+  <h2><span class="step">3</span>추출</h2>
+  <div class="row">
+    <label>샘플 간격
+      <select id="interval"><option value="0.25">0.25초 (정밀)</option><option value="0.5" selected>0.5초 (권장)</option><option value="1">1초 (빠름)</option></select>
+    </label>
+    <label>페이지 전환 감도 <input type="range" id="sens" min="2" max="15" step="0.5" value="6"> <span id="sensLabel" class="mono">6</span></label>
+    <button id="runBtn" class="primary">추출 시작</button>
+    <button id="cancelBtn" hidden>중단</button>
+  </div>
+  <div id="progressWrap" hidden>
+    <div id="progressBar"><div id="progressFill"></div></div>
+  </div>
+  <div id="status"></div>
+</section>
+
+<section id="stepResult" hidden>
+  <h2><span class="step">4</span>결과</h2>
+  <p class="hint">잘못 잡힌 페이지는 마우스를 올려 <strong>삭제</strong>할 수 있습니다.</p>
+  <div id="pages"></div>
+  <div class="row">
+    <button id="downloadPng" class="primary">PNG 다운로드</button>
+    <button id="printBtn">인쇄 / PDF 저장</button>
+  </div>
+</section>
+
+</main>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요.</footer>
+<div id="printArea"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+const state = {
+  video: null,          // <video> (off-DOM)
+  crop: null,           // {x,y,w,h} 영상 원본 픽셀 기준
+  pages: [],            // {canvas, t}
+  running: false,
+  cancelled: false,
+};
+
+// ---------- 1. 파일 로드 ----------
+$("drop").addEventListener("click", () => $("fileInput").click());
+$("drop").addEventListener("dragover", e => { e.preventDefault(); $("drop").classList.add("over"); });
+$("drop").addEventListener("dragleave", () => $("drop").classList.remove("over"));
+$("drop").addEventListener("drop", e => {
+  e.preventDefault(); $("drop").classList.remove("over");
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+$("fileInput").addEventListener("change", e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+// 테스트/공유용: ?src=파일URL 로 자동 로드 (같은 출처 또는 CORS 허용 URL)
+const srcParam = new URLSearchParams(location.search).get("src");
+if (srcParam) {
+  fetch(srcParam).then(r => r.blob()).then(b => loadFile(new File([b], "video.mp4", { type: b.type || "video/mp4" })));
+}
+
+function loadFile(file) {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.src = URL.createObjectURL(file);
+  video.addEventListener("loadedmetadata", () => {
+    state.video = video;
+    state.crop = {
+      x: 0,
+      y: Math.round(video.videoHeight * 0.87),
+      w: video.videoWidth,
+      h: Math.round(video.videoHeight * 0.13),
+    };
+    $("drop").innerHTML = `<strong>${file.name}</strong> · ${video.videoWidth}x${video.videoHeight} · ${fmtTime(video.duration)}`;
+    $("stepCrop").hidden = false;
+    $("stepRun").hidden = false;
+    seekPreview(video.duration * 0.15);
+  }, { once: true });
+  video.addEventListener("error", () => {
+    $("drop").innerHTML = "이 브라우저에서 재생할 수 없는 형식입니다. mp4(H.264)로 변환해 주세요.";
+  }, { once: true });
+}
+
+function fmtTime(s) {
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+}
+
+// ---------- 2. 미리보기 + 크롭 드래그 ----------
+const preview = $("preview");
+const pctx = preview.getContext("2d");
+let previewScale = 1; // preview px -> video px 배율의 역수
+
+function seekTo(video, t) {
+  return new Promise(res => {
+    video.addEventListener("seeked", res, { once: true });
+    video.currentTime = Math.min(t, Math.max(0, video.duration - 0.05));
+  });
+}
+
+async function seekPreview(t) {
+  const v = state.video;
+  await seekTo(v, t);
+  const cw = Math.min(960, v.videoWidth);
+  const ch = Math.round(cw * v.videoHeight / v.videoWidth);
+  preview.width = cw; preview.height = ch;
+  previewScale = v.videoWidth / cw;
+  drawPreview();
+  $("seekLabel").textContent = fmtTime(t);
+}
+
+function drawPreview() {
+  pctx.drawImage(state.video, 0, 0, preview.width, preview.height);
+  const c = state.crop, s = 1 / previewScale;
+  pctx.save();
+  pctx.fillStyle = "rgba(0,0,0,.45)";
+  pctx.fillRect(0, 0, preview.width, c.y * s);
+  pctx.fillRect(0, (c.y + c.h) * s, preview.width, preview.height);
+  pctx.fillRect(0, c.y * s, c.x * s, c.h * s);
+  pctx.fillRect((c.x + c.w) * s, c.y * s, preview.width, c.h * s);
+  pctx.strokeStyle = "#2f6fed"; pctx.lineWidth = 2;
+  pctx.strokeRect(c.x * s, c.y * s, c.w * s, c.h * s);
+  pctx.restore();
+}
+
+$("seek").addEventListener("input", e => {
+  if (state.video) seekPreview(state.video.duration * e.target.value / 100);
+});
+$("presetBottom").addEventListener("click", () => {
+  const v = state.video;
+  state.crop = { x: 0, y: Math.round(v.videoHeight * 0.87), w: v.videoWidth, h: Math.round(v.videoHeight * 0.13) };
+  drawPreview();
+});
+
+let dragStart = null;
+preview.addEventListener("pointerdown", e => {
+  const r = preview.getBoundingClientRect();
+  const k = preview.width / r.width; // CSS px -> canvas px
+  dragStart = { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k };
+  preview.setPointerCapture(e.pointerId);
+});
+preview.addEventListener("pointermove", e => {
+  if (!dragStart) return;
+  const r = preview.getBoundingClientRect();
+  const k = preview.width / r.width;
+  const cur = { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k };
+  const x = Math.min(dragStart.x, cur.x), y = Math.min(dragStart.y, cur.y);
+  const w = Math.abs(cur.x - dragStart.x), h = Math.abs(cur.y - dragStart.y);
+  if (w > 8 && h > 8) {
+    state.crop = {
+      x: Math.round(x * previewScale), y: Math.round(y * previewScale),
+      w: Math.round(w * previewScale), h: Math.round(h * previewScale),
+    };
+    drawPreview();
+  }
+});
+preview.addEventListener("pointerup", () => { dragStart = null; });
+
+// ---------- 3. 추출 ----------
+$("sens").addEventListener("input", e => $("sensLabel").textContent = e.target.value);
+$("runBtn").addEventListener("click", run);
+$("cancelBtn").addEventListener("click", () => { state.cancelled = true; });
+
+const SIG_W = 160, MIN_WHITE = 0.70, MIN_INK = 0.005, MIN_RUN = 2;
+
+function makeSig(srcCanvas) {
+  const th = Math.max(8, Math.round(srcCanvas.height * SIG_W / srcCanvas.width));
+  const c = makeSig.c || (makeSig.c = document.createElement("canvas"));
+  c.width = SIG_W; c.height = th;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(srcCanvas, 0, 0, SIG_W, th);
+  const d = ctx.getImageData(0, 0, SIG_W, th).data;
+  const n = SIG_W * th, gray = new Float32Array(n);
+  let white = 0, ink = 0;
+  for (let i = 0; i < n; i++) {
+    const g = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    gray[i] = g;
+    if (g > 200) white++;
+    if (g < 100) ink++;
+  }
+  return { gray, white: white / n, ink: ink / n };
+}
+
+function sigDiff(a, b) {
+  if (a.gray.length !== b.gray.length) return 255;
+  let sum = 0;
+  for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray[i] - b.gray[i]);
+  return sum / a.gray.length;
+}
+
+function grabCrop(video, crop) {
+  const c = document.createElement("canvas");
+  c.width = crop.w; c.height = crop.h;
+  c.getContext("2d").drawImage(video, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+  return c;
+}
+
+async function run() {
+  if (!state.video || state.running) return;
+  const v = state.video, crop = state.crop;
+  const interval = parseFloat($("interval").value);
+  const threshold = parseFloat($("sens").value);
+  state.running = true; state.cancelled = false;
+  $("runBtn").disabled = true; $("cancelBtn").hidden = false;
+  $("progressWrap").hidden = false;
+  $("stepResult").hidden = true;
+  $("status").className = "";
+
+  // 1차 통과: 저해상 시그니처만 수집
+  const times = [];
+  for (let t = 0; t < v.duration; t += interval) times.push(t);
+  const sigs = [];
+  const scratch = document.createElement("canvas");
+  scratch.width = crop.w; scratch.height = crop.h;
+  const sctx = scratch.getContext("2d");
+  for (let i = 0; i < times.length; i++) {
+    if (state.cancelled) return finish("중단됨", "warn");
+    await seekTo(v, times[i]);
+    sctx.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+    const s = makeSig(scratch);
+    sigs.push({ t: times[i], sig: s, valid: s.white >= MIN_WHITE && s.ink >= MIN_INK });
+    if (i % 5 === 0 || i === times.length - 1) {
+      setProgress(i / times.length * 80, `프레임 분석 중 ${i + 1}/${times.length}`);
+      await new Promise(r => requestAnimationFrame(r));
+    }
+  }
+
+  // 안정 구간(같은 페이지 유지 구간) 묶기
+  const runs = [];
+  let runStart = null;
+  for (let i = 0; i < sigs.length; i++) {
+    if (!sigs[i].valid) {
+      if (runStart !== null) { runs.push([runStart, i - 1]); runStart = null; }
+      continue;
+    }
+    if (runStart === null) runStart = i;
+    else if (sigDiff(sigs[i - 1].sig, sigs[i].sig) > threshold) { runs.push([runStart, i - 1]); runStart = i; }
+  }
+  if (runStart !== null) runs.push([runStart, sigs.length - 1]);
+  const good = runs.filter(([s, e]) => e - s + 1 >= MIN_RUN);
+
+  // 2차 통과: 페이지 대표 프레임을 원본 해상도로 확보
+  // 반복 구절은 마디 번호만 달라도 유지해야 하므로 직전 페이지와만 중복 비교
+  state.pages = [];
+  let prevSig = null;
+  for (let k = 0; k < good.length; k++) {
+    if (state.cancelled) return finish("중단됨", "warn");
+    const [s, e] = good[k];
+    const mid = sigs[(s + e) >> 1];
+    if (prevSig && sigDiff(mid.sig, prevSig) <= threshold) continue;
+    prevSig = mid.sig;
+    await seekTo(v, mid.t);
+    state.pages.push({ canvas: grabCrop(v, crop), t: mid.t });
+    setProgress(80 + (k + 1) / good.length * 20, `페이지 추출 중 ${k + 1}/${good.length}`);
+  }
+
+  renderPages();
+  finish(state.pages.length
+    ? `완료: ${state.pages.length}페이지 추출됨`
+    : "악보 페이지를 찾지 못했습니다. 악보 영역과 감도를 확인해 주세요.",
+    state.pages.length ? "ok" : "warn");
+  $("stepResult").hidden = state.pages.length === 0;
+}
+
+function setProgress(pct, msg) {
+  $("progressFill").style.width = pct.toFixed(1) + "%";
+  $("status").textContent = msg;
+}
+function finish(msg, cls) {
+  state.running = false;
+  $("runBtn").disabled = false; $("cancelBtn").hidden = true;
+  $("status").textContent = msg; $("status").className = cls || "";
+  if (cls === "ok") $("progressFill").style.width = "100%";
+}
+
+// ---------- 4. 결과 ----------
+function renderPages() {
+  const wrap = $("pages");
+  wrap.innerHTML = "";
+  state.pages.forEach((p, i) => {
+    const div = document.createElement("div");
+    div.className = "page";
+    const img = document.createElement("img");
+    img.src = p.canvas.toDataURL("image/png");
+    const idx = document.createElement("span");
+    idx.className = "idx"; idx.textContent = `${i + 1} · ${fmtTime(p.t)}`;
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "삭제";
+    del.onclick = () => { state.pages.splice(i, 1); renderPages(); };
+    div.append(img, idx, del);
+    wrap.appendChild(div);
+  });
+}
+
+function stitch() {
+  const gap = 6;
+  const w = Math.max(...state.pages.map(p => p.canvas.width));
+  const h = state.pages.reduce((a, p) => a + p.canvas.height, 0) + gap * (state.pages.length - 1);
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
+  let y = 0;
+  for (const p of state.pages) { ctx.drawImage(p.canvas, 0, y); y += p.canvas.height + gap; }
+  return c;
+}
+
+$("downloadPng").addEventListener("click", () => {
+  if (!state.pages.length) return;
+  stitch().toBlob(blob => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "full_score.png";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, "image/png");
+});
+
+$("printBtn").addEventListener("click", () => {
+  if (!state.pages.length) return;
+  const area = $("printArea");
+  area.innerHTML = "";
+  for (const p of state.pages) {
+    const img = document.createElement("img");
+    img.src = p.canvas.toDataURL("image/png");
+    area.appendChild(img);
+  }
+  window.print();
+});
+</script>
+</body>
+</html>

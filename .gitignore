@@ -1,0 +1,7 @@
+venv/
+score_out/
+cache/
+*.mp4
+__pycache__/
+.DS_Store
+.vercel/
