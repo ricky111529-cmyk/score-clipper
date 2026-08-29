@@ -126,7 +126,7 @@
 </section>
 
 </main>
-<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v3</footer>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v3.1</footer>
 <div id="printArea"></div>
 
 <script>
@@ -157,8 +157,9 @@ if (srcParam) {
   fetch(srcParam).then(r => r.blob()).then(b => loadFile(new File([b], "video.mp4", { type: b.type || "video/mp4" })));
 }
 
-// 유튜브 링크 모드: 다운로드 서버(server.py)가 붙어 있을 때만 입력칸 표시
-fetch("/api/health").then(r => { if (r.ok) $("urlRow").hidden = false; }).catch(() => {});
+// 유튜브 링크 모드: 다운로드 서버(server.py)가 붙어 있을 때만 입력칸 표시.
+// 반드시 JSON {ok:true}를 확인한다 - 상태코드만 보면 보안 체크·404 페이지를 서버로 오인한다.
+fetch("/api/health").then(r => r.json()).then(j => { if (j.ok) $("urlRow").hidden = false; }).catch(() => {});
 
 $("fetchBtn").addEventListener("click", fetchFromYoutube);
 $("ytUrl").addEventListener("keydown", e => { if (e.key === "Enter") fetchFromYoutube(); });
@@ -175,7 +176,10 @@ async function fetchFromYoutube() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
-    const { job, error } = await res.json();
+    let data;
+    try { data = await res.json(); }
+    catch { throw new Error("이 주소에는 다운로드 서버가 없어요. start.sh가 출력한 터널 주소로 접속해 주세요."); }
+    const { job, error } = data;
     if (!res.ok) throw new Error(error || "요청 실패");
     let info;
     while (true) {
