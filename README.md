@@ -24,14 +24,14 @@
 - 로컬 실행: `python3 -m http.server 8765 -d web` 후 http://localhost:8765
 - 테스트 훅: `?src=파일URL` 쿼리로 자동 로드 (같은 출처 파일)
 
-## CLI (score_stitch.py)
+## CLI (cli/score_stitch.py)
 
 유튜브 URL부터 한 번에 처리할 때 사용 (yt-dlp + ffmpeg 필요).
 
 ```
 yt-dlp --no-playlist -f "bv*[height<=1080][ext=mp4]" -o video.mp4 "<URL>"
-pip install -r requirements.txt
-python score_stitch.py video.mp4 --y 940 --height 140 --fps 2 --out score_out
+pip install -r cli/requirements.txt
+python cli/score_stitch.py video.mp4 --y 940 --height 140 --fps 2 --out score_out
 ```
 
 `--y`, `--height`는 악보 띠의 시작 y좌표와 높이(px). 프레임 하나 뽑아서 확인 후 지정.
