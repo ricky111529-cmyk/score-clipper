@@ -119,7 +119,7 @@
 </section>
 
 </main>
-<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요.</footer>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v2.1</footer>
 <div id="printArea"></div>
 
 <script>
@@ -263,15 +263,18 @@ function makeSig(srcCanvas) {
   const ctx = c.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(srcCanvas, 0, 0, SIG_W, th);
   const d = ctx.getImageData(0, 0, SIG_W, th).data;
-  const n = SIG_W * th, gray = new Float32Array(n);
+  const n = SIG_W * th, mask = new Uint8Array(n);
   let white = 0, ink = 0;
   for (let i = 0; i < n; i++) {
-    const g = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
-    gray[i] = g;
+    // RGB 최댓값 채널을 128에서 이진화한 "잉크 마스크"를 시그니처로 쓴다.
+    // 반투명 컬러 하이라이트는 흰 배경(>128)도 잉크(<128)도 반대편으로 넘기지 못하므로
+    // 마스크는 하이라이트에 불변이고, 실제 악보(잉크 배치)가 바뀔 때만 달라진다.
+    const g = Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
+    mask[i] = g < 128 ? 1 : 0;
     if (g > 200) white++;
     if (g < 100) ink++;
   }
-  return { gray, white: white / n, ink: ink / n };
+  return { gray: mask, white: white / n, ink: ink / n };
 }
 
 // 가로 8구간별 평균 차이. 마디 하이라이트 이동은 1-2구간만, 페이지 넘김은 대부분 구간이 바뀐다.
@@ -287,9 +290,9 @@ function segDiffs(a, b) {
 }
 
 function isPageFlip(a, b, thr) {
-  // 구간별 문턱은 전역 감도보다 낮게: 음표가 적은 페이지의 넘김도 잡되,
-  // 마디 표시 이동은 최대 3-4구간만 바꾸므로 FLIP_SEGS(5) 밑에 머문다
-  return segDiffs(a, b).filter(d => d > thr * 0.6).length >= FLIP_SEGS;
+  // 마스크 차이 비율(0~1)로 판정. 감도 6 => 구간 픽셀의 3.6% 이상 달라지면 그 구간이 바뀐 것.
+  // 페이지 넘김은 대부분 구간이 동시에 바뀌고, 하이라이트 이동은 마스크를 거의 못 바꾼다.
+  return segDiffs(a, b).filter(d => d > (thr * 0.6) / 100).length >= FLIP_SEGS;
 }
 
 // 한 페이지 구간의 여러 시점을 픽셀 중앙값으로 합성해 움직이는 마디 표시를 지운다
@@ -305,16 +308,18 @@ async function compositePage(video, crop, times) {
   }
   if (frames.length <= 1) return c;
   const out = ctx.createImageData(crop.w, crop.h);
-  const k = frames.length, vals = new Uint8Array(k), mid = k >> 1;
+  // 중앙값 대신 65퍼센타일(밝은 쪽): 하이라이트가 표본의 최대 ~60%에 머물러도
+  // (인트로에서 첫 마디에 오래 머무는 경우 등) 지워진다
+  const k = frames.length, vals = new Uint8Array(k), pick = Math.min(k - 1, Math.round((k - 1) * 0.65));
   for (let i = 0; i < out.data.length; i += 4) {
     for (let ch = 0; ch < 3; ch++) {
       for (let j = 0; j < k; j++) {
-        // 삽입 정렬 (k <= 5)
+        // 삽입 정렬 (k <= 7)
         let x = frames[j][i + ch], p = j;
         while (p > 0 && vals[p - 1] > x) { vals[p] = vals[p - 1]; p--; }
         vals[p] = x;
       }
-      out.data[i + ch] = (k % 2) ? vals[mid] : (vals[mid - 1] + vals[mid]) >> 1;
+      out.data[i + ch] = vals[pick];
     }
     out.data[i + 3] = 255;
   }

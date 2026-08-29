@@ -34,13 +34,20 @@ def extract_strips(video, y, height, fps, workdir):
 
 
 def signature(path, thumb_w=320):
-    """저해상 그레이스케일 시그니처와 (흰배경 비율, 잉크 비율)을 반환."""
-    img = Image.open(path).convert("L")
-    arr = np.asarray(img, dtype=np.float32)
+    """저해상 시그니처와 (흰배경 비율, 잉크 비율)을 반환.
+
+    RGB 최댓값 채널을 쓴다: 컬러 마디 하이라이트(파랑·노랑 등)는 흰색처럼 보이고
+    검은 악보 잉크만 남아, 하이라이트 이동이 페이지 넘김으로 오탐되지 않는다.
+    """
+    rgb = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32)
+    arr = rgb.max(axis=2)
     white_ratio = float((arr > 200).mean())
     ink_ratio = float((arr < 100).mean())
+    img = Image.fromarray(arr.astype(np.uint8))
     thumb_h = max(8, int(img.height * thumb_w / img.width))
-    thumb = np.asarray(img.resize((thumb_w, thumb_h)), dtype=np.float32)
+    # 128 이진화한 잉크 마스크: 반투명 하이라이트는 흰 배경도 잉크도 반대편으로
+    # 넘기지 못하므로, 실제 악보(잉크 배치)가 바뀔 때만 시그니처가 달라진다
+    thumb = (np.asarray(img.resize((thumb_w, thumb_h)), dtype=np.float32) < 128).astype(np.float32)
     return thumb, white_ratio, ink_ratio
 
 
@@ -61,8 +68,8 @@ def seg_diffs(a, b):
 
 
 def is_page_flip(a, b, thr):
-    # 구간별 문턱은 전역 감도보다 낮게: 음표가 적은 페이지의 넘김도 잡는다
-    return sum(x > thr * 0.6 for x in seg_diffs(a, b)) >= FLIP_SEGS
+    # 마스크 차이 비율로 판정. 감도 6 => 구간 픽셀의 3.6% 이상 달라지면 그 구간이 바뀐 것
+    return sum(x > (thr * 0.6) / 100 for x in seg_diffs(a, b)) >= FLIP_SEGS
 
 
 def pick_even(s, e, m):
@@ -132,7 +139,8 @@ def main():
             np.asarray(Image.open(sigs[i][0]).convert("RGB"), dtype=np.uint8)
             for i in pick_even(s, e, 7)
         ])
-        comp = Image.fromarray(np.median(stack, axis=0).astype(np.uint8))
+        # 65퍼센타일(밝은 쪽): 하이라이트가 표본의 ~60%에 머물러도 지워진다
+        comp = Image.fromarray(np.percentile(stack, 65, axis=0).astype(np.uint8))
         pages.append((comp, thumb))
     print(f"      최종 페이지 {len(pages)}개")
     if not pages:
