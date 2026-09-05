@@ -119,7 +119,7 @@
 </section>
 
 </main>
-<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v3.2</footer>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v3.3</footer>
 <div id="printArea"></div>
 
 <script>
@@ -376,7 +376,12 @@ async function run() {
     else if (isPageFlip(sigs[i - 1].sig, sigs[i].sig, threshold)) { runs.push([runStart, i - 1]); runStart = i; }
   }
   if (runStart !== null) runs.push([runStart, sigs.length - 1]);
-  const good = runs.filter(([s, e]) => e - s + 1 >= MIN_RUN);
+  // 크로스페이드 전환 프레임이 짧은 run으로 잡히는 것을 걸러낸다:
+  // 실제 페이지 체류시간(중앙값)의 35% 미만인 run은 전환 잔상으로 보고 제외
+  const lens = runs.map(([s, e]) => e - s + 1).sort((a, b) => a - b);
+  const medianLen = lens.length ? lens[lens.length >> 1] : 0;
+  const minRun = Math.max(MIN_RUN, Math.ceil(medianLen * 0.35));
+  const good = runs.filter(([s, e]) => e - s + 1 >= minRun);
 
   // 2차 통과: 페이지별로 여러 시점을 중앙값 합성해 원본 해상도로 확보 (마디 표시 제거)
   // 반복 구절은 마디 번호만 달라도 유지해야 하므로 직전 페이지와만 중복 비교
@@ -388,7 +393,10 @@ async function run() {
     const mid = sigs[(s + e) >> 1];
     if (prevSig && !isPageFlip(mid.sig, prevSig, threshold)) continue;
     prevSig = mid.sig;
-    const times = pickEven(s, e, 7).map(i => sigs[i].t);
+    // 합성 표본은 run 양끝(페이드가 걸칠 수 있는 구간)을 잘라내고 뽑는다
+    const span = e - s + 1;
+    const trim = Math.min(2, Math.floor(span * 0.2));
+    const times = pickEven(s + trim, e - trim, 7).map(i => sigs[i].t);
     state.pages.push({ canvas: await compositePage(v, crop, times), t: mid.t });
     setProgress(80 + (k + 1) / good.length * 20, `페이지 합성 중 ${k + 1}/${good.length}`);
     await new Promise(r => setTimeout(r, 0));

@@ -122,7 +122,12 @@ def main():
     if run_start is not None:
         runs.append((run_start, len(sigs) - 1))
 
-    runs = [(s, e) for s, e in runs if e - s + 1 >= args.min_run]
+    # 크로스페이드 전환 프레임이 짧은 run으로 잡히는 것을 걸러낸다:
+    # 실제 페이지 체류시간(중앙값)의 35% 미만인 run은 전환 잔상으로 보고 제외
+    lens = sorted(e - s + 1 for s, e in runs)
+    median_len = lens[len(lens) // 2] if lens else 0
+    min_run = max(args.min_run, -(-median_len * 35 // 100))
+    runs = [(s, e) for s, e in runs if e - s + 1 >= min_run]
     print(f"      페이지 후보 {len(runs)}개")
 
     print("[3/4] 페이지 합성(마디 표시 제거) + 중복 제거 ...")
@@ -135,9 +140,11 @@ def main():
         _, thumb, _ = sigs[mid]
         if pages and not is_page_flip(thumb, pages[-1][1], args.page_diff):
             continue
+        # 합성 표본은 run 양끝(페이드가 걸칠 수 있는 구간)을 잘라내고 뽑는다
+        trim = min(2, (e - s + 1) * 20 // 100)
         stack = np.stack([
             np.asarray(Image.open(sigs[i][0]).convert("RGB"), dtype=np.uint8)
-            for i in pick_even(s, e, 7)
+            for i in pick_even(s + trim, e - trim, 7)
         ])
         # 65퍼센타일(밝은 쪽): 하이라이트가 표본의 ~60%에 머물러도 지워진다
         comp = Image.fromarray(np.percentile(stack, 65, axis=0).astype(np.uint8))
