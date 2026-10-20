@@ -10,6 +10,7 @@
     --accent: #2f6fed; --accent-ink: #ffffff; --line: #e3e6ec; --ok: #1a9b5c; --warn: #c2410c;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; }
   header { padding: 28px 24px 8px; max-width: 1040px; margin: 0 auto; }
@@ -56,6 +57,25 @@
   .page .idx { position: absolute; top: 6px; left: 6px; background: rgba(28,35,48,.6); color: #fff;
                border-radius: 6px; font-size: 11px; padding: 2px 7px; }
   footer { max-width: 1040px; margin: 0 auto; padding: 0 24px 40px; color: var(--sub); font-size: 12px; line-height: 1.7; }
+  .tabs { display: flex; gap: 6px; margin: 10px 0 2px; }
+  .tab { padding: 6px 14px; border-radius: 999px; font-size: 13px; }
+  .tab.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .beta { font-size: 11px; opacity: .7; }
+  #ytUrl { flex: 1; min-width: 240px; font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; }
+  #ytStatus { font-size: 13px; color: var(--sub); margin-top: 8px; }
+  #ytStatus.warn { color: var(--warn); }
+  #ytBox { margin-top: 14px; }
+  #ytStage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
+  #ytStage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  #ytShield { position: absolute; inset: 0; } /* 마우스를 올려도 유튜브 UI가 뜨지 않게 가린다 */
+  #capBar { position: absolute; top: 10px; left: 10px; z-index: 2; display: flex; gap: 10px; align-items: center;
+            background: rgba(0,0,0,.72); color: #fff; font-size: 13px; padding: 6px 8px 6px 12px; border-radius: 9px; }
+  #capBar button { padding: 4px 10px; font-size: 12px; }
+  /* 추출 중에는 플레이어를 화면 가득 키워 캡처 해상도를 최대로 확보한다 */
+  body.capturing { overflow: hidden; }
+  body.capturing::before { content: ""; position: fixed; inset: 0; background: #000; z-index: 999; }
+  body.capturing #ytStage { position: fixed; inset: 0; margin: auto; z-index: 1000; aspect-ratio: auto;
+                            width: min(100vw, 177.78vh); height: min(100vh, 56.25vw); border-radius: 0; }
   #printArea { display: none; }
   @media print {
     body > header, body > main, body > footer { display: none !important; }
@@ -73,10 +93,36 @@
 <main>
 
 <section id="stepFile">
-  <h2><span class="step">1</span>영상 파일 선택</h2>
-  <p class="hint">유튜브 영상은 파일로 먼저 저장해 주세요 (yt-dlp, 화면녹화 등). mp4 / webm / mov 지원.</p>
-  <div id="drop"><strong>클릭</strong>하거나 영상 파일을 여기로 <strong>드래그</strong></div>
-  <input type="file" id="fileInput" accept="video/*">
+  <h2><span class="step">1</span>영상 선택</h2>
+  <div class="tabs">
+    <button class="tab active" data-mode="file">파일 업로드</button>
+    <button class="tab" data-mode="link">유튜브 링크 <span class="beta">베타</span></button>
+  </div>
+  <div id="fileMode">
+    <p class="hint">yt-dlp·화면녹화 등으로 저장한 영상 파일. mp4 / webm / mov 지원.</p>
+    <div id="drop"><strong>클릭</strong>하거나 영상 파일을 여기로 <strong>드래그</strong></div>
+    <input type="file" id="fileInput" accept="video/*">
+  </div>
+  <div id="linkMode" hidden>
+    <p class="hint">영상을 이 페이지에서 재생하면서 화면을 캡처해 악보를 읽습니다. 서버로 전송되는 것은 없습니다.<br>
+       <strong>PC의 Chrome·Edge 전용</strong>이고, 영상을 2배속으로 끝까지 재생하므로 영상 길이의 절반 정도 걸립니다.</p>
+    <div class="row">
+      <input type="url" id="ytUrl" placeholder="https://www.youtube.com/watch?v=...">
+      <button id="ytLoad" class="primary">불러오기</button>
+    </div>
+    <div id="ytStatus"></div>
+    <div id="ytBox" hidden>
+      <div id="ytStage">
+        <div id="ytPlayer"></div>
+        <div id="ytShield"></div>
+        <div id="capBar" hidden><span id="capStatus"></span><button id="capCancel">중단</button></div>
+      </div>
+      <div class="row">
+        <button id="capBtn" class="primary">화면 공유 연결</button>
+        <span class="hint" style="margin:0">공유할 화면을 고르는 창이 뜨면 <strong>이 탭</strong>을 선택해 주세요.</span>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section id="stepCrop" hidden>
@@ -92,12 +138,16 @@
 
 <section id="stepRun" hidden>
   <h2><span class="step">3</span>추출</h2>
-  <p class="hint">현재 마디를 따라다니는 하이라이트·커서가 있는 영상도 OK: 여러 프레임을 합성해 표시를 지우고 깨끗한 악보만 남깁니다.</p>
+  <p class="hint">현재 마디를 따라다니는 컬러 하이라이트가 있는 영상도 OK: 여러 프레임을 합성해 표시를 지우고 깨끗한 악보만 남깁니다.
+     악보 영역에 영상이 조금 섞여도 움직이는 부분은 자동으로 판정에서 빠집니다.</p>
+  <p class="hint" id="linkRunHint" hidden>추출을 누르면 플레이어가 화면 가득 커지고, 영상 몇 군데를 잠깐 재생해 화질과 악보 영역을 확인한 뒤 처음부터 재생합니다. <strong>끝날 때까지 이 탭을 띄워 두세요</strong> (다른 탭으로 가면 재생이 멈출 수 있어요).</p>
   <div class="row">
+    <label id="rateWrap" hidden>재생 속도
+      <select id="rate"><option value="1">1배 (느림)</option><option value="1.5">1.5배</option><option value="2" selected>2배 (권장)</option></select>
+    </label>
     <label>샘플 간격
       <select id="interval"><option value="0.25">0.25초 (정밀)</option><option value="0.5" selected>0.5초 (권장)</option><option value="1">1초 (빠름)</option></select>
     </label>
-    <label>페이지 전환 감도 <input type="range" id="sens" min="2" max="15" step="0.5" value="6"> <span id="sensLabel" class="mono">6</span></label>
     <button id="runBtn" class="primary">추출 시작</button>
     <button id="cancelBtn" hidden>중단</button>
   </div>
@@ -119,19 +169,35 @@
 </section>
 
 </main>
-<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v3.3</footer>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v4.0-beta</footer>
 <div id="printArea"></div>
 
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 const state = {
+  mode: "file",         // "file" | "link"
   video: null,          // <video> (off-DOM)
-  crop: null,           // {x,y,w,h} 영상 원본 픽셀 기준
+  crop: null,           // {x,y,w,h} 소스 원본 픽셀 기준 (파일: 영상, 링크: 캡처 프레임)
   pages: [],            // {canvas, t}
   running: false,
   cancelled: false,
+};
+
+// 링크 모드 상태
+const yt = {
+  api: null,            // iframe API 로드 Promise
+  player: null,         // YT.Player
+  duration: 0,
+  ended: false,
+  error: null,          // 재생 중 발생한 유튜브 오류 코드
+  stream: null,         // 탭 캡처 MediaStream
+  cap: null,            // 캡처 스트림을 받는 <video> (off-DOM)
+  snap: null,           // 크롭 지정용 캡처 스냅샷 canvas
+  lastRun: null,        // 마지막 추출의 진단 정보 (화질·해상도·표본 수)
 };
 
 // ---------- 1. 파일 로드 ----------
@@ -158,12 +224,7 @@ function loadFile(file) {
   video.src = URL.createObjectURL(file);
   video.addEventListener("loadedmetadata", () => {
     state.video = video;
-    state.crop = {
-      x: 0,
-      y: Math.round(video.videoHeight * 0.87),
-      w: video.videoWidth,
-      h: Math.round(video.videoHeight * 0.13),
-    };
+    state.crop = presetCrop();
     $("drop").innerHTML = `<strong>${file.name}</strong> · ${video.videoWidth}x${video.videoHeight} · ${fmtTime(video.duration)}`;
     $("stepCrop").hidden = false;
     $("stepRun").hidden = false;
@@ -183,26 +244,50 @@ const preview = $("preview");
 const pctx = preview.getContext("2d");
 let previewScale = 1; // preview px -> video px 배율의 역수
 
+// 'seeked' 이벤트가 드물게 오지 않아 추출 전체가 멈출 수 있어서(실측 1회) 5초 안에 안 오면 한 번 다시 시도한다
 function seekTo(video, t) {
-  return new Promise(res => {
-    video.addEventListener("seeked", res, { once: true });
-    video.currentTime = Math.min(t, Math.max(0, video.duration - 0.05));
+  const target = Math.min(t, Math.max(0, video.duration - 0.05));
+  const attempt = pos => new Promise(res => {
+    const done = ok => { clearTimeout(timer); video.removeEventListener("seeked", onSeeked); res(ok); };
+    const onSeeked = () => done(true);
+    const timer = setTimeout(() => done(false), 5000);
+    video.addEventListener("seeked", onSeeked);
+    video.currentTime = pos;
   });
+  return attempt(target)
+    .then(ok => ok || attempt(Math.max(0, target - 0.001)))
+    .then(ok => { if (!ok) seekTo.timeouts = (seekTo.timeouts || 0) + 1; });
+}
+
+// 현재 소스(파일 영상 또는 링크 모드 캡처 스냅샷)의 원본 픽셀 크기와 그림
+function srcFrame() {
+  return state.mode === "link"
+    ? { img: yt.snap, w: yt.snap.width, h: yt.snap.height, dur: yt.duration }
+    : { img: state.video, w: state.video.videoWidth, h: state.video.videoHeight, dur: state.video.duration };
+}
+function sourceReady() { return state.mode === "link" ? !!yt.snap : !!state.video; }
+function presetCrop() {
+  const { w, h } = srcFrame();
+  return { x: 0, y: Math.round(h * 0.87), w, h: Math.round(h * 0.13) };
 }
 
 async function seekPreview(t) {
-  const v = state.video;
-  await seekTo(v, t);
-  const cw = Math.min(960, v.videoWidth);
-  const ch = Math.round(cw * v.videoHeight / v.videoWidth);
-  preview.width = cw; preview.height = ch;
-  previewScale = v.videoWidth / cw;
-  drawPreview();
+  if (state.mode === "link") return ytPreview(t);
+  await seekTo(state.video, t);
+  layoutPreview();
   $("seekLabel").textContent = fmtTime(t);
 }
 
+function layoutPreview() {
+  const { w, h } = srcFrame();
+  const cw = Math.min(960, w);
+  preview.width = cw; preview.height = Math.round(cw * h / w);
+  previewScale = w / cw;
+  drawPreview();
+}
+
 function drawPreview() {
-  pctx.drawImage(state.video, 0, 0, preview.width, preview.height);
+  pctx.drawImage(srcFrame().img, 0, 0, preview.width, preview.height);
   const c = state.crop, s = 1 / previewScale;
   pctx.save();
   pctx.fillStyle = "rgba(0,0,0,.45)";
@@ -216,11 +301,11 @@ function drawPreview() {
 }
 
 $("seek").addEventListener("input", e => {
-  if (state.video) seekPreview(state.video.duration * e.target.value / 100);
+  if (sourceReady()) seekPreview(srcFrame().dur * e.target.value / 100);
 });
 $("presetBottom").addEventListener("click", () => {
-  const v = state.video;
-  state.crop = { x: 0, y: Math.round(v.videoHeight * 0.87), w: v.videoWidth, h: Math.round(v.videoHeight * 0.13) };
+  if (!sourceReady()) return;
+  state.crop = presetCrop();
   drawPreview();
 });
 
@@ -249,50 +334,227 @@ preview.addEventListener("pointermove", e => {
 preview.addEventListener("pointerup", () => { dragStart = null; });
 
 // ---------- 3. 추출 ----------
-$("sens").addEventListener("input", e => $("sensLabel").textContent = e.target.value);
-$("runBtn").addEventListener("click", run);
+$("runBtn").addEventListener("click", () => (state.mode === "link" ? runLink() : run()));
 $("cancelBtn").addEventListener("click", () => { state.cancelled = true; });
 
-// MIN_WHITE는 진한 마디 하이라이트가 있어도 악보로 인식되게 여유 있게 잡는다
-const SIG_W = 160, SEGS = 8, FLIP_SEGS = 5, MIN_WHITE = 0.55, MIN_INK = 0.005, MIN_RUN = 2;
+// ---------- 페이지 넘김 감지 ----------
+// 픽셀을 잉크(어둡고 무채색) / 종이(밝고 무채색) / 불확실(컬러 하이라이트, 흐린 경계 등)로 나누고,
+// 지금 페이지의 기준 이미지와 비교해 "종이였던 곳에 생긴 잉크 + 종이로 바뀐 잉크" 픽셀 수로 판정한다.
+// - 하이라이트는 불확실로 빠져서 판정에 영향을 주지 않는다
+// - 마디 번호만 다른 페이지도 구분된다 (같은 페이지 잡음 0~13px, 마디 번호만 다른 넘김 176px+ 실측)
+// - 전환 잔상은 "연속 2표본이 같은 새 페이지"일 때만 넘김으로 확정해 걸러낸다
+// - 크롭에 섞인 영상은 사전 스캔(행 단위)과 움직임 감시(블록 단위)로 판정에서 뺀다
+const DET_W = 1920;          // 판정 해상도(폭): 소스 크기와 무관하게 같은 문턱을 쓴다
+const INK_MAX = 110, INK_SAT = 60, PAPER_MIN = 170, PAPER_SAT = 40;
+const FLIP_T = 40;           // 페이지 넘김 문턱 (픽셀 수)
+const MIN_RUN = 2;           // 2표본 미만으로 끝난 구간은 페이지로 보지 않는다
+const BLK = 16;              // 움직임 감시 블록 크기
+const MAX_KEEP = 14;         // 링크 모드에서 페이지당 보관하는 프레임 수 상한
+const PRESCAN_PAIRS = 16;    // 파일 모드 사전 스캔 표본 쌍 수
+const POPCNT = Uint8Array.from({ length: 64 }, (_, k) => k.toString(2).split("1").length - 1);
+// 악보 띠가 떠 있는 프레임: 밝은 배경이 절반 이상(컬러 하이라이트도 밝은 쪽) + 잉크(오선 등)가 조금이라도 있음.
+// 인트로·아웃트로처럼 영상만 나오는 구간을 거른다. 원본 해상도로 세야 음표가 드문 페이지도 놓치지 않는다
+// (가장 성긴 실측 페이지의 잉크 1.28%, 검은 화면의 밝은 영역 0%)
+const MIN_BRIGHT = 0.55, MIN_INK_FRAC = 0.002;
 
-function makeSig(srcCanvas) {
-  const th = Math.max(8, Math.round(srcCanvas.height * SIG_W / srcCanvas.width));
-  const c = makeSig.c || (makeSig.c = document.createElement("canvas"));
-  c.width = SIG_W; c.height = th;
+function classify(data, n) {
+  const ink = new Uint8Array(n), paper = new Uint8Array(n);
+  let bright = 0, inkN = 0;
+  for (let p = 0, q = 0; p < n; p++, q += 4) {
+    const r = data[q], g = data[q + 1], b = data[q + 2];
+    const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    if (mx > 200) bright++;
+    if (mx < INK_MAX && mx - mn < INK_SAT) { ink[p] = 1; inkN++; }
+    else if (mn > PAPER_MIN && mx - mn < PAPER_SAT) paper[p] = 1;
+  }
+  return { ink, paper, bright: bright / n, inkFrac: inkN / n };
+}
+
+// 3x3 이웃이 전부 1인 곳만 1 (가장자리는 0). 1px 흔들림을 차이로 세지 않기 위해 쓴다
+function erode(m, w, h) {
+  const v = new Uint8Array(w * h), out = new Uint8Array(w * h);
+  for (let y = 1; y < h - 1; y++) for (let p = y * w, e = p + w; p < e; p++) v[p] = m[p - w] & m[p] & m[p + w];
+  for (let y = 1; y < h - 1; y++) for (let p = y * w + 1, e = y * w + w - 1; p < e; p++) out[p] = v[p - 1] & v[p] & v[p + 1];
+  return out;
+}
+
+// 악보가 없는 프레임이면 null
+function makeFrame(data, w, h) {
+  const { ink, paper, bright, inkFrac } = classify(data, w * h);
+  if (bright < MIN_BRIGHT || inkFrac < MIN_INK_FRAC) return null;
+  return { ink, paper, solid: erode(paper, w, h) };
+}
+
+// a 기준으로 b에 새로 생긴 잉크 + a의 잉크가 b에서 종이가 된 픽셀 수 (mask=1인 곳만)
+function inkDiff(aInk, aSolid, bInk, bSolid, mask) {
+  let d = 0;
+  for (let p = 0; p < mask.length; p++) if (mask[p]) d += (bInk[p] & aSolid[p]) + (aInk[p] & bSolid[p]);
+  return d;
+}
+
+// 판정용 캔버스: 크롭을 폭 DET_W로 맞춰 그린다
+function detCanvas(cropW, cropH) {
+  const c = document.createElement("canvas");
+  c.width = DET_W; c.height = Math.max(8, Math.round(cropH * DET_W / cropW));
   const ctx = c.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(srcCanvas, 0, 0, SIG_W, th);
-  const d = ctx.getImageData(0, 0, SIG_W, th).data;
-  const n = SIG_W * th, mask = new Uint8Array(n);
-  let white = 0, ink = 0;
-  for (let i = 0; i < n; i++) {
-    // RGB 최댓값 채널을 128에서 이진화한 "잉크 마스크"를 시그니처로 쓴다.
-    // 반투명 컬러 하이라이트는 흰 배경(>128)도 잉크(<128)도 반대편으로 넘기지 못하므로
-    // 마스크는 하이라이트에 불변이고, 실제 악보(잉크 배치)가 바뀔 때만 달라진다.
-    const g = Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
-    mask[i] = g < 128 ? 1 : 0;
-    if (g > 200) white++;
-    if (g < 100) ink++;
-  }
-  return { gray: mask, white: white / n, ink: ink / n };
+  ctx.imageSmoothingQuality = "high";
+  return { c, ctx };
+}
+function readFrame(dc) {
+  const data = dc.ctx.getImageData(0, 0, dc.c.width, dc.c.height).data;
+  const f = makeFrame(data, dc.c.width, dc.c.height);
+  if (f) f.data = data;
+  return f;
 }
 
-// 가로 8구간별 평균 차이. 마디 하이라이트 이동은 1-2구간만, 페이지 넘김은 대부분 구간이 바뀐다.
-function segDiffs(a, b) {
-  const n = a.gray.length;
-  const sums = new Float64Array(SEGS), counts = new Float64Array(SEGS);
-  if (n !== b.gray.length) return Array(SEGS).fill(255);
-  for (let i = 0; i < n; i++) {
-    const s = Math.min(SEGS - 1, Math.floor((i % SIG_W) * SEGS / SIG_W));
-    sums[s] += Math.abs(a.gray[i] - b.gray[i]); counts[s]++;
+// 사전 스캔: 0.5초 간격 프레임 쌍 여러 개에서 페이지가 넘어가지 않았는데도 바뀌는 행 = 크롭에 섞인 영상.
+// 가장 긴 연속 "조용한" 행 구간을 악보 띠로 본다
+function findBandRows(pairs, w, h) {
+  const act = new Uint16Array(h);
+  let used = 0;
+  for (const [a, b] of pairs) {
+    const rows = new Uint16Array(h);
+    let changed = 0;
+    for (let y = 0; y < h; y++) {
+      let c = 0;
+      for (let p = y * w, e = p + w; p < e; p++) c += (a.ink[p] & b.paper[p]) | (a.paper[p] & b.ink[p]);
+      rows[y] = c;
+      if (c >= 2) changed++;
+    }
+    if (changed >= h * 0.25) continue; // 페이지가 넘어간 쌍은 근거로 쓰지 않는다
+    used++;
+    for (let y = 0; y < h; y++) if (rows[y] >= 2) act[y]++;
   }
-  return Array.from(sums, (v, s) => v / counts[s]);
+  let best = null, s = -1;
+  for (let y = 0; y <= h; y++) {
+    if (y < h && !act[y]) { if (s < 0) s = y; }
+    else if (s >= 0) { if (!best || y - s > best[1] - best[0] + 1) best = [s, y - 1]; s = -1; }
+  }
+  // 근거가 없거나 띠가 너무 얇게 잡히면 크롭 전체를 쓴다
+  if (!used || !best || best[1] - best[0] + 1 < h * 0.2) return { rows: [0, h - 1], used, fallback: true };
+  return { rows: best, used, fallback: false };
 }
 
-function isPageFlip(a, b, thr) {
-  // 마스크 차이 비율(0~1)로 판정. 감도 6 => 구간 픽셀의 3.6% 이상 달라지면 그 구간이 바뀐 것.
-  // 페이지 넘김은 대부분 구간이 동시에 바뀌고, 하이라이트 이동은 마스크를 거의 못 바꾼다.
-  return segDiffs(a, b).filter(d => d > (thr * 0.6) / 100).length >= FLIP_SEGS;
+// 표본을 순서대로 넣으면 페이지 구간(run)을 나눠 준다. onRunEnd(run)는 페이지가 확정될 때마다 호출된다.
+// exclude: 판정에서 뺄 픽셀(0)을 표시한 마스크 (없으면 null)
+function createDetector(w, h, band, onRunEnd, exclude) {
+  const n = w * h, gw = Math.ceil(w / BLK), gh = Math.ceil(h / BLK);
+  // 판정 영역: 악보 띠 행에서 위아래·좌우 가장자리 2px를 뺀 곳
+  const base = new Uint8Array(n);
+  for (let y = Math.max(2, band[0] + 2); y <= Math.min(h - 3, band[1] - 2); y++) base.fill(1, y * w + 2, y * w + w - 2);
+  if (exclude) for (let p = 0; p < n; p++) base[p] &= exclude[p];
+  let mask = base;
+  const bhist = new Uint8Array(gw * gh);
+  let last = null, cur = null, pend = null;
+  const runs = [];
+  const stats = { maxSame: 0, minFlip: Infinity, movingBlocks: 0 };
+
+  // 연속 프레임 사이에 잉크<->종이가 자주 뒤집히는 블록(크롭에 섞인 영상 등)은 판정에서 뺀다.
+  // 악보 블록은 페이지가 넘어갈 때만 바뀌므로 최근 6쌍 중 3번 이상 바뀌지 않는다
+  function observe(f) {
+    if (last) {
+      const cnt = new Uint16Array(gw * gh);
+      for (let y = 0; y < h; y++) {
+        const row = ((y / BLK) | 0) * gw;
+        for (let x = 0, p = y * w; x < w; x++, p++)
+          if ((last.ink[p] & f.paper[p]) | (last.paper[p] & f.ink[p])) cnt[row + ((x / BLK) | 0)]++;
+      }
+      const moving = [];
+      for (let k = 0; k < gw * gh; k++) {
+        bhist[k] = ((bhist[k] << 1) | (cnt[k] >= 2 ? 1 : 0)) & 63;
+        if (POPCNT[bhist[k]] >= 3) moving.push(k);
+      }
+      stats.movingBlocks = Math.max(stats.movingBlocks, moving.length);
+      mask = base;
+      if (moving.length) {
+        mask = base.slice();
+        for (const k of moving) {
+          // 주변 1블록까지 함께 뺀다
+          const bx = k % gw, by = (k / gw) | 0;
+          const x0 = Math.max(0, (bx - 1) * BLK), x1 = Math.min(w, (bx + 2) * BLK);
+          for (let y = Math.max(0, (by - 1) * BLK), y1 = Math.min(h, (by + 2) * BLK); y < y1; y++) mask.fill(0, y * w + x0, y * w + x1);
+        }
+      }
+    }
+    last = f;
+  }
+
+  function addTo(r, f) {
+    r.members.push(f.i);
+    for (let p = 0; p < n; p++) { r.inkV[p] += f.ink[p]; r.papV[p] += f.paper[p]; }
+    r.ref = null;
+    if (onRunEnd) {
+      r.keep.push({ i: f.i, data: f.data, ui: !!f.ui });
+      if (r.keep.length > MAX_KEEP) {
+        // 플레이어 버튼이 덮었을 수 있는 표본부터 버리고, 없으면 하나 건너 하나씩 줄인다
+        const u = r.keep.findIndex(k => k.ui);
+        if (u >= 0 && r.keep.some(k => !k.ui)) r.keep.splice(u, 1);
+        else r.keep = r.keep.filter((_, j) => j % 2 === 0);
+      }
+    }
+  }
+  function newRun(f) {
+    const r = { members: [], keep: [], inkV: new Uint16Array(n), papV: new Uint16Array(n), ref: null };
+    addTo(r, f);
+    return r;
+  }
+  // 페이지 기준 이미지: 지금까지 표본의 잉크/종이 다수결 (하이라이트에 가렸던 곳은 다른 표본이 채운다)
+  function refOf(r) {
+    if (!r.ref) {
+      const ink = new Uint8Array(n), paper = new Uint8Array(n);
+      for (let p = 0; p < n; p++) { ink[p] = r.inkV[p] > r.papV[p] ? 1 : 0; paper[p] = r.papV[p] > r.inkV[p] ? 1 : 0; }
+      r.ref = { ink, solid: erode(paper, w, h) };
+    }
+    return r.ref;
+  }
+
+  function close() {
+    const r = cur;
+    cur = null;
+    if (!r || r.members.length < MIN_RUN) return;
+    if (onRunEnd) onRunEnd(r);
+    r.keep = null;
+    const prev = runs[runs.length - 1];
+    if (prev && prev.inkV) {
+      const a = refOf(prev), b = refOf(r);
+      const d = inkDiff(a.ink, a.solid, b.ink, b.solid, mask);
+      if (d <= FLIP_T) {
+        // 영상만 나오는 구간 등으로 같은 페이지가 둘로 끊긴 경우: 합친다
+        if (r.canvas && r.members.length > prev.members.length) prev.canvas = r.canvas;
+        prev.members.push(...r.members);
+        for (let p = 0; p < n; p++) { prev.inkV[p] += r.inkV[p]; prev.papV[p] += r.papV[p]; }
+        prev.ref = null;
+        return;
+      }
+      stats.minFlip = Math.min(stats.minFlip, d);
+      prev.inkV = prev.papV = prev.ref = null; // 더 이상 비교하지 않으므로 메모리 해제
+    }
+    runs.push(r);
+  }
+
+  function push(f) {
+    if (!f) { close(); pend = null; last = null; return; } // 악보가 없는 프레임
+    observe(f);
+    if (!cur) { cur = newRun(f); return; }
+    const ref = refOf(cur);
+    const d = inkDiff(ref.ink, ref.solid, f.ink, f.solid, mask);
+    if (pend) {
+      if (d <= FLIP_T) { pend = null; }                                   // 직전 변화는 일시적이었다 (전환 잔상 등)
+      else if (inkDiff(pend.ink, pend.solid, f.ink, f.solid, mask) <= FLIP_T) {
+        close(); cur = newRun(pend); pend = null; addTo(cur, f); return;   // 연속 2표본이 같은 새 페이지: 넘김 확정
+      } else { pend = f; return; }                                         // 전환이 진행 중: 최신 표본으로 다시 확인
+    }
+    if (d <= FLIP_T) { addTo(cur, f); stats.maxSame = Math.max(stats.maxSame, d); }
+    else pend = f;
+  }
+
+  return {
+    push,
+    finish() { close(); pend = null; return runs; },
+    get count() { return runs.length + (cur ? 1 : 0); },
+    stats,
+  };
 }
 
 // 한 페이지 구간의 여러 시점을 픽셀 중앙값으로 합성해 움직이는 마디 표시를 지운다
@@ -304,10 +566,18 @@ async function compositePage(video, crop, times) {
   for (const t of times) {
     await seekTo(video, t);
     ctx.drawImage(video, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
-    if (times.length > 1) frames.push(ctx.getImageData(0, 0, crop.w, crop.h).data.slice());
+    frames.push(ctx.getImageData(0, 0, crop.w, crop.h).data.slice());
   }
-  if (frames.length <= 1) return c;
-  const out = ctx.createImageData(crop.w, crop.h);
+  return compositeFrames(frames, crop.w, crop.h);
+}
+
+// frames: 같은 크기(w x h)의 RGBA 픽셀 배열들
+function compositeFrames(frames, w, h) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  const out = ctx.createImageData(w, h);
+  if (frames.length === 1) { out.data.set(frames[0]); ctx.putImageData(out, 0, 0); return c; }
   // 중앙값 대신 65퍼센타일(밝은 쪽): 하이라이트가 표본의 최대 ~60%에 머물러도
   // (인트로에서 첫 마디에 오래 머무는 경우 등) 지워진다
   const k = frames.length, vals = new Uint8Array(k), pick = Math.min(k - 1, Math.round((k - 1) * 0.65));
@@ -333,81 +603,84 @@ function pickEven(s, e, m) {
   return Array.from({ length: m }, (_, i) => s + Math.round(i * (len - 1) / (m - 1)));
 }
 
-async function run() {
-  if (!state.video || state.running) return;
-  const v = state.video, crop = state.crop;
-  const interval = parseFloat($("interval").value);
-  const threshold = parseFloat($("sens").value);
+function beginRun() {
   state.running = true; state.cancelled = false;
   $("runBtn").disabled = true; $("cancelBtn").hidden = false;
   $("progressWrap").hidden = false;
   $("stepResult").hidden = true;
   $("status").className = "";
+}
 
-  // 1차 통과: 저해상 시그니처만 수집
+function showResult() {
+  renderPages();
+  finish(state.pages.length
+    ? `완료: ${state.pages.length}페이지 추출됨`
+    : "악보 페이지를 찾지 못했습니다. 악보 영역을 확인해 주세요.",
+    state.pages.length ? "ok" : "warn");
+  $("stepResult").hidden = state.pages.length === 0;
+}
+
+// 합성에 쓸 표본: 페이지 구간 양끝(페이드가 걸칠 수 있는 곳)을 잘라내고 최대 7개를 고르게
+function compositeMembers(members) {
+  const trim = Math.min(2, Math.floor(members.length * 0.2));
+  return pickEven(trim, members.length - 1 - trim, 7).map(j => members[j]);
+}
+
+async function run() {
+  if (!state.video || state.running) return;
+  const v = state.video, crop = state.crop;
+  const interval = parseFloat($("interval").value);
+  beginRun();
+  const dc = detCanvas(crop.w, crop.h);
+  const grab = async t => {
+    await seekTo(v, t);
+    dc.ctx.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, dc.c.width, dc.c.height);
+    return readFrame(dc);
+  };
+
+  // 0) 사전 스캔: 영상 전체에서 고르게 0.5초 간격 프레임 쌍을 보고 크롭에 섞인 영상 행을 찾는다
+  const pairs = [];
+  for (let k = 0; k < PRESCAN_PAIRS; k++) {
+    if (state.cancelled) return finish("중단됨", "warn");
+    setProgress(k / PRESCAN_PAIRS * 5, "악보 영역 확인 중...");
+    const t = v.duration * (0.05 + 0.9 * k / (PRESCAN_PAIRS - 1));
+    const a = await grab(t);
+    const b = a && await grab(Math.min(v.duration - 0.05, t + interval));
+    if (a && b) pairs.push([{ ink: a.ink, paper: a.paper }, { ink: b.ink, paper: b.paper }]);
+  }
+  const band = findBandRows(pairs, dc.c.width, dc.c.height);
+  const det = createDetector(dc.c.width, dc.c.height, band.rows);
+
+  // 1) 1차 통과: 일정 간격 표본으로 페이지 구간 나누기
   const times = [];
   for (let t = 0; t < v.duration; t += interval) times.push(t);
-  const sigs = [];
-  const scratch = document.createElement("canvas");
-  scratch.width = crop.w; scratch.height = crop.h;
-  const sctx = scratch.getContext("2d");
   for (let i = 0; i < times.length; i++) {
     if (state.cancelled) return finish("중단됨", "warn");
-    await seekTo(v, times[i]);
-    sctx.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
-    const s = makeSig(scratch);
-    sigs.push({ t: times[i], sig: s, valid: s.white >= MIN_WHITE && s.ink >= MIN_INK });
+    const f = await grab(times[i]);
+    if (f) { f.i = i; f.data = null; }
+    det.push(f);
     if (i % 5 === 0 || i === times.length - 1) {
-      setProgress(i / times.length * 80, `프레임 분석 중 ${i + 1}/${times.length}`);
+      setProgress(5 + i / times.length * 75, `프레임 분석 중 ${i + 1}/${times.length} · 페이지 ${det.count}`);
       // rAF는 백그라운드 탭에서 멈추므로 setTimeout으로 UI에 양보
       await new Promise(r => setTimeout(r, 0));
     }
   }
+  const runs = det.finish();
+  state.lastDetect = { ...det.stats, band: band.rows, bandFallback: band.fallback, prescanPairs: band.used,
+                       height: dc.c.height, samples: times.length, pages: runs.length, seekTimeouts: seekTo.timeouts || 0 };
 
-  // 안정 구간(같은 페이지 유지 구간) 묶기
-  const runs = [];
-  let runStart = null;
-  for (let i = 0; i < sigs.length; i++) {
-    if (!sigs[i].valid) {
-      if (runStart !== null) { runs.push([runStart, i - 1]); runStart = null; }
-      continue;
-    }
-    if (runStart === null) runStart = i;
-    else if (isPageFlip(sigs[i - 1].sig, sigs[i].sig, threshold)) { runs.push([runStart, i - 1]); runStart = i; }
-  }
-  if (runStart !== null) runs.push([runStart, sigs.length - 1]);
-  // 크로스페이드 전환 프레임이 짧은 run으로 잡히는 것을 걸러낸다:
-  // 실제 페이지 체류시간(중앙값)의 35% 미만인 run은 전환 잔상으로 보고 제외
-  const lens = runs.map(([s, e]) => e - s + 1).sort((a, b) => a - b);
-  const medianLen = lens.length ? lens[lens.length >> 1] : 0;
-  const minRun = Math.max(MIN_RUN, Math.ceil(medianLen * 0.35));
-  const good = runs.filter(([s, e]) => e - s + 1 >= minRun);
-
-  // 2차 통과: 페이지별로 여러 시점을 중앙값 합성해 원본 해상도로 확보 (마디 표시 제거)
-  // 반복 구절은 마디 번호만 달라도 유지해야 하므로 직전 페이지와만 중복 비교
+  // 2) 2차 통과: 페이지별로 여러 시점을 합성해 원본 해상도로 확보 (마디 표시 제거)
   state.pages = [];
-  let prevSig = null;
-  for (let k = 0; k < good.length; k++) {
+  for (let k = 0; k < runs.length; k++) {
     if (state.cancelled) return finish("중단됨", "warn");
-    const [s, e] = good[k];
-    const mid = sigs[(s + e) >> 1];
-    if (prevSig && !isPageFlip(mid.sig, prevSig, threshold)) continue;
-    prevSig = mid.sig;
-    // 합성 표본은 run 양끝(페이드가 걸칠 수 있는 구간)을 잘라내고 뽑는다
-    const span = e - s + 1;
-    const trim = Math.min(2, Math.floor(span * 0.2));
-    const times = pickEven(s + trim, e - trim, 7).map(i => sigs[i].t);
-    state.pages.push({ canvas: await compositePage(v, crop, times), t: mid.t });
-    setProgress(80 + (k + 1) / good.length * 20, `페이지 합성 중 ${k + 1}/${good.length}`);
+    const m = runs[k].members;
+    const pick = compositeMembers(m).map(i => times[i]);
+    state.pages.push({ canvas: await compositePage(v, crop, pick), t: times[m[m.length >> 1]] });
+    setProgress(80 + (k + 1) / runs.length * 20, `페이지 합성 중 ${k + 1}/${runs.length}`);
     await new Promise(r => setTimeout(r, 0));
   }
 
-  renderPages();
-  finish(state.pages.length
-    ? `완료: ${state.pages.length}페이지 추출됨`
-    : "악보 페이지를 찾지 못했습니다. 악보 영역과 감도를 확인해 주세요.",
-    state.pages.length ? "ok" : "warn");
-  $("stepResult").hidden = state.pages.length === 0;
+  showResult();
 }
 
 function setProgress(pct, msg) {
@@ -419,6 +692,340 @@ function finish(msg, cls) {
   $("runBtn").disabled = false; $("cancelBtn").hidden = true;
   $("status").textContent = msg; $("status").className = cls || "";
   if (cls === "ok") $("progressFill").style.width = "100%";
+}
+
+// ---------- 3b. 유튜브 링크 모드 (화면 공유 캡처) ----------
+// 유튜브 영상 원본은 브라우저에서 직접 받을 수 없고(CORS), 임베드 iframe의 픽셀도 읽을 수 없다.
+// 대신 이 탭을 화면 공유(getDisplayMedia)로 캡처하고 Region Capture(cropTo)로 플레이어 영역만 잘라 읽는다.
+// 서버 없이 동작하지만 영상을 실제로 재생해야 하므로 실시간(배속) 처리다.
+
+const YT_ERRORS = {
+  2: "영상 주소가 올바르지 않아요.",
+  5: "이 브라우저에서 재생할 수 없는 영상이에요.",
+  100: "영상을 찾을 수 없어요 (삭제 또는 비공개).",
+  101: "영상 소유자가 외부 재생을 막아 둔 영상이에요. 파일 업로드를 이용해 주세요.",
+  150: "영상 소유자가 외부 재생을 막아 둔 영상이에요. 파일 업로드를 이용해 주세요.",
+  153: "유튜브 플레이어 설정 오류예요. 페이지를 새로고침해 주세요.",
+};
+// 높은 화질 순. 플레이어 크기가 1080p 이상이면 유튜브 자동 화질이 수 초 안에 hd1080까지 오른다
+const QUALITIES = ["highres", "hd2880", "hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
+// 탐색(seek)·배속 변경 직후 유튜브 플레이어가 공유·동영상 더보기 버튼과 가운데 재생 아이콘을 몇 초간 띄운다
+// (실측: 조작 뒤 최대 4.6초 보이고 5초엔 사라짐. 배속 변경 때는 뜰 때도 있고 안 뜰 때도 있다)
+const PLAYER_UI_WAIT = 6000;
+// 그 버튼들이 뜨는 자리 (플레이어 대비 비율 x0, y0, x1, y1)
+const PLAYER_UI_BOXES = [[0, 0.88, 0.07, 1], [0.75, 0.88, 0.97, 1], [0.44, 0.40, 0.56, 0.60]];
+
+// 플레이어 버튼 자리를 크롭 좌표의 제외 마스크로 바꾼다 (0 = 판정 제외)
+function playerUiMask(frac, w, h) {
+  const m = new Uint8Array(w * h).fill(1);
+  for (const [x0, y0, x1, y1] of PLAYER_UI_BOXES) {
+    const cx0 = Math.max(0, Math.floor((x0 - frac.x) / frac.w * w)), cx1 = Math.min(w, Math.ceil((x1 - frac.x) / frac.w * w));
+    const cy0 = Math.max(0, Math.floor((y0 - frac.y) / frac.h * h)), cy1 = Math.min(h, Math.ceil((y1 - frac.y) / frac.h * h));
+    for (let y = cy0; y < cy1; y++) if (cx1 > cx0) m.fill(0, y * w + cx0, y * w + cx1);
+  }
+  return m;
+}
+
+document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+function setMode(mode) {
+  if (state.running || state.mode === mode) return;
+  state.mode = mode;
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+  $("fileMode").hidden = mode !== "file";
+  $("linkMode").hidden = mode !== "link";
+  $("linkRunHint").hidden = $("rateWrap").hidden = mode !== "link";
+  const ready = sourceReady();
+  $("stepCrop").hidden = $("stepRun").hidden = !ready;
+  // 소스마다 픽셀 크기가 달라 크롭은 기본값으로 되돌린다
+  if (ready) { state.crop = presetCrop(); layoutPreview(); }
+}
+
+function ytMsg(text, cls) {
+  $("ytStatus").textContent = text;
+  $("ytStatus").className = cls || "";
+}
+
+function parseVideoId(url) {
+  const m = url.trim().match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+function loadYouTubeApi() {
+  if (yt.api) return yt.api;
+  yt.api = new Promise((res, rej) => {
+    window.onYouTubeIframeAPIReady = res;
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    s.onerror = () => { yt.api = null; rej(new Error("iframe_api")); };
+    document.head.appendChild(s);
+  });
+  return yt.api;
+}
+
+$("ytLoad").addEventListener("click", loadYoutube);
+$("ytUrl").addEventListener("keydown", e => { if (e.key === "Enter") loadYoutube(); });
+
+async function loadYoutube() {
+  if (state.running) return;
+  const id = parseVideoId($("ytUrl").value);
+  if (!id) return ytMsg("유튜브 영상 주소를 확인해 주세요.", "warn");
+  ytMsg("플레이어 불러오는 중...");
+  try { await loadYouTubeApi(); } catch {
+    return ytMsg("유튜브 플레이어를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.", "warn");
+  }
+  // 다른 영상으로 바꿀 때는 플레이어를 새로 만든다 (캡처 영역은 바깥 #ytStage 기준이라 그대로 유효)
+  if (yt.player) { yt.player.destroy(); yt.player = null; }
+  const host = document.createElement("div");
+  $("ytStage").prepend(host);
+  $("ytBox").hidden = false;
+  yt.snap = null; yt.error = null; yt.duration = 0;
+  $("stepCrop").hidden = $("stepRun").hidden = true;
+  try {
+    await new Promise((res, rej) => {
+      yt.player = new YT.Player(host, {
+        videoId: id, width: "100%", height: "100%",
+        playerVars: { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, cc_load_policy: 0,
+                      playsinline: 1, origin: location.origin },
+        events: {
+          onReady: () => { yt.player.mute(); res(); },
+          onStateChange: e => { if (e.data === YT.PlayerState.ENDED) yt.ended = true; },
+          onError: e => { yt.error = e.data; ytMsg(YT_ERRORS[e.data] || `재생 오류 (${e.data})`, "warn"); rej(e); },
+        },
+      });
+    });
+  } catch { return; }
+  yt.duration = yt.player.getDuration();
+  ytMsg(yt.stream ? "불러왔어요." : "불러왔어요. 아래 '화면 공유 연결'을 눌러 주세요.");
+  if (yt.stream) await afterCaptureReady();
+}
+
+$("capBtn").addEventListener("click", connectCapture);
+
+async function connectCapture() {
+  if (!navigator.mediaDevices?.getDisplayMedia || !window.CropTarget) {
+    return ytMsg("이 브라우저는 탭 캡처를 지원하지 않아요. PC의 Chrome 또는 Edge에서 열어 주세요.", "warn");
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
+      audio: false, preferCurrentTab: true, selfBrowserSurface: "include", surfaceSwitching: "exclude",
+    });
+  } catch {
+    return ytMsg("화면 공유가 취소됐어요. 다시 눌러서 이 탭을 공유해 주세요.", "warn");
+  }
+  const track = stream.getVideoTracks()[0];
+  try {
+    if (track.getSettings().displaySurface !== "browser") throw new Error("not a tab");
+    await track.cropTo(await CropTarget.fromElement($("ytStage")));
+  } catch {
+    stream.getTracks().forEach(t => t.stop());
+    return ytMsg("'이 탭'을 선택해야 플레이어 영역만 읽을 수 있어요. 다시 시도해 주세요.", "warn");
+  }
+  track.addEventListener("ended", () => {
+    yt.stream = yt.cap = null;
+    $("capBtn").disabled = false; $("capBtn").textContent = "화면 공유 연결";
+    if (state.running) state.cancelled = true;
+    ytMsg("화면 공유가 끊겼어요. 다시 연결해 주세요.", "warn");
+  });
+  const v = document.createElement("video");
+  v.muted = true; v.srcObject = stream;
+  v.play().catch(() => {});
+  for (let k = 0; k < 50 && !v.videoWidth; k++) await sleep(100);
+  if (!v.videoWidth) {
+    // 공유는 연결됐는데 화면이 한 장도 안 들어오는 경우 (드물게 실측): 빈 화면으로 진행하지 않는다
+    stream.getTracks().forEach(t => t.stop());
+    return ytMsg("화면 공유 영상이 들어오지 않아요. 다시 '화면 공유 연결'을 눌러 주세요.", "warn");
+  }
+  yt.stream = stream; yt.cap = v;
+  $("capBtn").disabled = true; $("capBtn").textContent = "화면 공유 연결됨";
+  ytMsg("");
+  await afterCaptureReady();
+}
+
+// 캡처와 플레이어가 모두 준비되면 크롭 지정 단계로
+async function afterCaptureReady() {
+  if (!yt.player || !yt.cap) return;
+  yt.snap = null;
+  $("stepCrop").hidden = $("stepRun").hidden = false;
+  await ytPreview(yt.duration * 0.15);
+}
+
+// 지정 시점부터 재생해 그 시점 프레임이 화면에 나올 때까지 기다린다.
+// seekTo 직후 getCurrentTime()은 잠깐 이전 위치를 돌려줄 수 있어서 목표 근처에 올 때까지 확인한다
+async function ytPlayAt(t) {
+  const p = yt.player;
+  p.seekTo(t, true); p.playVideo();
+  const t0 = performance.now();
+  while (performance.now() - t0 < 10000 && !yt.error) {
+    await sleep(100);
+    if (p.getPlayerState() === YT.PlayerState.PLAYING && Math.abs(p.getCurrentTime() - t) < 1.5) break;
+  }
+  if (!yt.duration) yt.duration = p.getDuration();
+  await sleep(300); // 캡처 스트림에 새 프레임이 도착할 시간
+}
+
+// Region Capture는 화면에 보이는 부분만 잘라 오므로, 캡처할 때는 플레이어를 화면 가득 띄운다
+function setCapturing(on) {
+  document.body.classList.toggle("capturing", on);
+  return sleep(on ? 500 : 0); // 레이아웃·캡처 해상도 반영 대기
+}
+
+function grabSnapshot() {
+  const v = yt.cap, c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  return c;
+}
+
+let ytPreviewBusy = false, ytPreviewNext = null;
+async function ytPreview(t) {
+  // 슬라이더를 끄는 동안 요청이 쌓이지 않게 마지막 요청만 이어서 처리한다
+  if (ytPreviewBusy) { ytPreviewNext = t; return; }
+  ytPreviewBusy = true;
+  try {
+    // 추출 때와 같은 화면 가득 레이아웃에서 스냅샷을 떠야 크롭 좌표가 그대로 맞는다
+    await setCapturing(true);
+    await ytPlayAt(t);
+    const prev = yt.snap, snap = grabSnapshot();
+    yt.player.pauseVideo();
+    await setCapturing(false);
+    yt.snap = snap;
+    if (!prev || !state.crop) state.crop = presetCrop();
+    else if (prev.width !== snap.width || prev.height !== snap.height) {
+      // 창 크기가 바뀌어 캡처 해상도가 달라졌으면 크롭을 같은 비율로 옮긴다
+      const kx = snap.width / prev.width, ky = snap.height / prev.height, c = state.crop;
+      state.crop = { x: Math.round(c.x * kx), y: Math.round(c.y * ky), w: Math.round(c.w * kx), h: Math.round(c.h * ky) };
+    }
+    layoutPreview();
+    $("seekLabel").textContent = fmtTime(t);
+  } finally {
+    document.body.classList.remove("capturing");
+    ytPreviewBusy = false;
+  }
+  if (ytPreviewNext !== null) { const n = ytPreviewNext; ytPreviewNext = null; ytPreview(n); }
+}
+
+$("capCancel").addEventListener("click", () => { state.cancelled = true; });
+
+function capStatus(msg) { $("capStatus").textContent = msg; }
+
+async function runLink() {
+  if (!yt.cap || !yt.snap || state.running || ytPreviewBusy) return;
+  const interval = parseFloat($("interval").value);
+  const rate = parseFloat($("rate").value);
+  const p = yt.player, snap = yt.snap, c = state.crop;
+  // 크롭은 비율로 바꿔 둔다: 창 크기가 바뀌면 캡처 해상도도 달라진다
+  const frac = { x: c.x / snap.width, y: c.y / snap.height, w: c.w / snap.width, h: c.h / snap.height };
+  beginRun();
+  $("capBar").hidden = false;
+  try {
+    await setCapturing(true);
+    await captureAndExtract(p, frac, interval, rate);
+  } finally {
+    p.pauseVideo();
+    setCapturing(false);
+    $("capBar").hidden = true;
+  }
+  if (state.cancelled) return finish("중단됨", "warn");
+  showResult();
+  $("stepRun").scrollIntoView({ block: "start" });
+}
+
+async function captureAndExtract(p, frac, interval, rate) {
+  // 1) 화질 예열: 유튜브는 처음 몇 초를 저화질로 재생한다.
+  //    영상 중간에서 자동 화질이 오를 때까지 재생한 뒤 처음으로 되감는다
+  //    (처음 구간을 예열에 쓰면 저화질로 받아 둔 버퍼가 그대로 재생된다)
+  capStatus("화질 맞추는 중...");
+  setProgress(0, "화질 맞추는 중...");
+  p.setPlaybackRate(1);
+  await ytPlayAt(yt.duration * 0.5);
+  const levels = p.getAvailableQualityLevels().filter(q => QUALITIES.includes(q));
+  const target = Math.max(levels.length ? QUALITIES.indexOf(levels[0]) : 0, QUALITIES.indexOf("hd1080"));
+  for (let k = 0; k < 30 && !state.cancelled; k++) {
+    const qi = QUALITIES.indexOf(p.getPlaybackQuality());
+    if (qi !== -1 && qi <= target) break;
+    await sleep(500);
+  }
+  if (state.cancelled) return;
+
+  // 판정과 합성을 같은 캔버스(폭 DET_W)에서 한다
+  const v = yt.cap;
+  const dc = detCanvas(frac.w * v.videoWidth, frac.h * v.videoHeight);
+  const outW = dc.c.width, outH = dc.c.height;
+  // 캡처 화면을 못 읽는 순간(크기 0)은 undefined: 표본에서 아예 뺀다 (빈 화면을 "악보 없음"으로 세지 않도록)
+  const capture = () => {
+    const vw = yt.cap && yt.cap.videoWidth, vh = yt.cap && yt.cap.videoHeight;
+    if (!vw || !vh) return undefined;
+    dc.ctx.drawImage(yt.cap, frac.x * vw, frac.y * vh, frac.w * vw, frac.h * vh, 0, 0, outW, outH);
+    return readFrame(dc);
+  };
+
+  // 2) 사전 스캔: 영상 세 지점에서 0.5초 간격 프레임을 모아 크롭에 섞인 영상 행을 찾는다
+  capStatus("악보 영역 확인 중...");
+  setProgress(0, "악보 영역 확인 중...");
+  const pairs = [];
+  for (const pos of [0.2, 0.5, 0.8]) {
+    if (state.cancelled || !yt.cap) return;
+    await ytPlayAt(yt.duration * pos);
+    await sleep(PLAYER_UI_WAIT); // 탐색 직후 뜨는 플레이어 버튼이 사라질 때까지
+    let prev = capture();
+    for (let k = 0; k < 5; k++) {
+      await sleep(interval * 1000); // 1배속이라 영상 시간 = 실제 시간
+      if (!yt.cap) return;
+      const f = capture();
+      if (prev && f) pairs.push([{ ink: prev.ink, paper: prev.paper }, { ink: f.ink, paper: f.paper }]);
+      prev = f;
+    }
+  }
+  const band = findBandRows(pairs, outW, outH);
+
+  // 3) 처음부터 배속 재생하며 일정 간격(영상 시간 기준)으로 샘플링.
+  //    실시간 캡처라 나중에 되돌아가 볼 수 없으므로 페이지가 확정될 때마다 보관해 둔 프레임으로 바로 합성한다
+  const det = createDetector(outW, outH, band.rows, r => {
+    // 플레이어 버튼이 덮었을 수 있는 표본은 깨끗한 표본이 하나라도 있으면 합성에서 뺀다
+    const clean = r.keep.filter(f => !f.ui);
+    const pool = clean.length ? clean : r.keep;
+    const picked = compositeMembers(pool.map((_, j) => j)).map(j => pool[j]);
+    r.canvas = compositeFrames(picked.map(f => f.data), outW, outH);
+  }, playerUiMask(frac, outW, outH)); // 버튼 자리는 페이지 넘김 판정에서도 뺀다
+  const times = [], qualities = new Set();
+  yt.ended = false;
+  // 배속을 먼저 바꾸고 처음으로 한 번만 되감은 뒤, 끝까지 플레이어를 건드리지 않는다.
+  // 되감은 직후 PLAYER_UI_WAIT 동안 찍은 표본은 버튼이 덮었을 수 있다고 표시해 둔다
+  p.setPlaybackRate(rate);
+  await ytPlayAt(0);
+  const uiUntil = performance.now() + PLAYER_UI_WAIT;
+  const period = interval * 1000 / rate;
+  let next = performance.now();
+  while (!state.cancelled && !yt.error) {
+    if (yt.ended || p.getPlayerState() === YT.PlayerState.ENDED) break;
+    if (p.getPlayerState() === YT.PlayerState.PLAYING && yt.cap) {
+      const t = p.getCurrentTime();
+      const f = capture();
+      if (f !== undefined) {
+        if (f) { f.i = times.length; f.ui = performance.now() < uiUntil; }
+        times.push(t);
+        det.push(f);
+      }
+      qualities.add(p.getPlaybackQuality());
+      const msg = `캡처 중 ${fmtTime(t)} / ${fmtTime(yt.duration)} · 페이지 ${det.count}`;
+      capStatus(msg);
+      setProgress(Math.min(95, t / yt.duration * 95), msg);
+    }
+    next += period;
+    const wait = next - performance.now();
+    if (wait < -period) next = performance.now(); // 밀렸으면 따라잡으려 몰아 찍지 않는다
+    await sleep(Math.max(0, wait));
+  }
+  const runs = det.finish();
+  yt.lastRun = { samples: times.length, outW, outH, rate, interval, qualities: [...qualities] };
+  state.lastDetect = { ...det.stats, band: band.rows, bandFallback: band.fallback, prescanPairs: band.used,
+                       height: outH, samples: times.length, pages: runs.length };
+  if (state.cancelled) return;
+  if (yt.error) { state.cancelled = true; return; }
+  state.pages = runs.map(r => ({ canvas: r.canvas, t: times[r.members[r.members.length >> 1]] }));
 }
 
 // ---------- 4. 결과 ----------
