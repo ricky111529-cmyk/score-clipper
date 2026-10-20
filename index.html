@@ -65,17 +65,20 @@
   #ytStatus { font-size: 13px; color: var(--sub); margin-top: 8px; }
   #ytStatus.warn { color: var(--warn); }
   #ytBox { margin-top: 14px; }
-  #ytStage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
+  /* 플레이어 영역이 그대로 캡처되므로 모서리를 둥글리지 않는다 */
+  #ytStage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
   #ytStage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   #ytShield { position: absolute; inset: 0; } /* 마우스를 올려도 유튜브 UI가 뜨지 않게 가린다 */
-  #capBar { position: absolute; top: 10px; left: 10px; z-index: 2; display: flex; gap: 10px; align-items: center;
-            background: rgba(0,0,0,.72); color: #fff; font-size: 13px; padding: 6px 8px 6px 12px; border-radius: 9px; }
-  #capBar button { padding: 4px 10px; font-size: 12px; }
-  /* 추출 중에는 플레이어를 화면 가득 키워 캡처 해상도를 최대로 확보한다 */
-  body.capturing { overflow: hidden; }
-  body.capturing::before { content: ""; position: fixed; inset: 0; background: #000; z-index: 999; }
-  body.capturing #ytStage { position: fixed; inset: 0; margin: auto; z-index: 1000; aspect-ratio: auto;
-                            width: min(100vw, 177.78vh); height: min(100vh, 56.25vw); border-radius: 0; }
+  #ytShield.cropping { cursor: crosshair; touch-action: none; }
+  /* 악보 영역 표시: 바깥을 어둡게. 캡처 화면에 찍히면 안 되므로 추출 중에는 숨긴다 */
+  #cropBox { position: absolute; border: 2px solid var(--accent); box-shadow: 0 0 0 9999px rgba(0,0,0,.45); pointer-events: none; }
+  #ytSeek { flex: 1; min-width: 200px; }
+  #linkProgress { margin-top: 12px; }
+  #linkProgress .row { margin-top: 0; }
+  #linkBar { flex: 1; height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+  #linkFill { height: 100%; width: 0%; background: var(--accent); transition: width .2s; }
+  #linkStatus { font-size: 13px; color: var(--sub); margin-top: 6px; }
+  #linkStatus.warn { color: var(--warn); }
   #printArea { display: none; }
   @media print {
     body > header, body > main, body > footer { display: none !important; }
@@ -115,11 +118,23 @@
       <div id="ytStage">
         <div id="ytPlayer"></div>
         <div id="ytShield"></div>
-        <div id="capBar" hidden><span id="capStatus"></span><button id="capCancel">중단</button></div>
+        <div id="cropBox" hidden></div>
       </div>
-      <div class="row">
+      <div class="row" id="capRow">
         <button id="capBtn" class="primary">화면 공유 연결</button>
         <span class="hint" style="margin:0">공유할 화면을 고르는 창이 뜨면 <strong>이 탭</strong>을 선택해 주세요.</span>
+      </div>
+      <div id="linkCrop" hidden>
+        <p class="hint" style="margin:10px 0 0">플레이어 위에서 악보 띠를 <strong>드래그로 감싸</strong> 주세요. 슬라이더로 다른 시점으로 옮길 수 있습니다. (기본값: 화면 하단 13%)</p>
+        <div class="row">
+          <input type="range" id="ytSeek" min="0" max="100" step="0.1" value="15">
+          <span class="mono" id="ytSeekLabel">0:00</span>
+          <button id="ytPreset">하단 13% 프리셋</button>
+        </div>
+      </div>
+      <div id="linkProgress" hidden>
+        <div class="row"><div id="linkBar"><div id="linkFill"></div></div><button id="capCancel">중단</button></div>
+        <div id="linkStatus"></div>
       </div>
     </div>
   </div>
@@ -140,7 +155,8 @@
   <h2><span class="step">3</span>추출</h2>
   <p class="hint">현재 마디를 따라다니는 컬러 하이라이트가 있는 영상도 OK: 여러 프레임을 합성해 표시를 지우고 깨끗한 악보만 남깁니다.
      악보 영역에 영상이 조금 섞여도 움직이는 부분은 자동으로 판정에서 빠집니다.</p>
-  <p class="hint" id="linkRunHint" hidden>추출을 누르면 플레이어가 화면 가득 커지고, 영상 몇 군데를 잠깐 재생해 화질과 악보 영역을 확인한 뒤 처음부터 재생합니다. <strong>끝날 때까지 이 탭을 띄워 두세요</strong> (다른 탭으로 가면 재생이 멈출 수 있어요).</p>
+  <p class="hint" id="linkRunHint" hidden>추출을 누르면 플레이어가 보이는 위치로 화면이 옮겨지고, 영상 몇 군데를 잠깐 재생해 화질과 악보 영역을 확인한 뒤 처음부터 2배속으로 재생합니다. 진행 상황은 플레이어 바로 아래에 표시됩니다.
+     <strong>끝날 때까지 이 탭을 띄워 두세요</strong> (다른 탭으로 가면 재생이 멈출 수 있어요. 진행 중에는 화면이 스크롤되지 않습니다).</p>
   <div class="row">
     <label id="rateWrap" hidden>재생 속도
       <select id="rate"><option value="1">1배 (느림)</option><option value="1.5">1.5배</option><option value="2" selected>2배 (권장)</option></select>
@@ -169,7 +185,7 @@
 </section>
 
 </main>
-<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v4.0-beta</footer>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v4.1-beta</footer>
 <div id="printArea"></div>
 
 <script>
@@ -181,7 +197,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const state = {
   mode: "file",         // "file" | "link"
   video: null,          // <video> (off-DOM)
-  crop: null,           // {x,y,w,h} 소스 원본 픽셀 기준 (파일: 영상, 링크: 캡처 프레임)
+  crop: null,           // 파일 모드 크롭 {x,y,w,h} 영상 원본 픽셀 기준
   pages: [],            // {canvas, t}
   running: false,
   cancelled: false,
@@ -196,7 +212,7 @@ const yt = {
   error: null,          // 재생 중 발생한 유튜브 오류 코드
   stream: null,         // 탭 캡처 MediaStream
   cap: null,            // 캡처 스트림을 받는 <video> (off-DOM)
-  snap: null,           // 크롭 지정용 캡처 스냅샷 canvas
+  crop: null,           // 링크 모드 크롭 {x,y,w,h} 플레이어 대비 비율 (0~1)
   lastRun: null,        // 마지막 추출의 진단 정보 (화질·해상도·표본 수)
 };
 
@@ -259,20 +275,17 @@ function seekTo(video, t) {
     .then(ok => { if (!ok) seekTo.timeouts = (seekTo.timeouts || 0) + 1; });
 }
 
-// 현재 소스(파일 영상 또는 링크 모드 캡처 스냅샷)의 원본 픽셀 크기와 그림
+// 파일 모드 영상의 원본 픽셀 크기 (링크 모드 크롭은 플레이어 위에서 따로 지정한다)
 function srcFrame() {
-  return state.mode === "link"
-    ? { img: yt.snap, w: yt.snap.width, h: yt.snap.height, dur: yt.duration }
-    : { img: state.video, w: state.video.videoWidth, h: state.video.videoHeight, dur: state.video.duration };
+  return { img: state.video, w: state.video.videoWidth, h: state.video.videoHeight, dur: state.video.duration };
 }
-function sourceReady() { return state.mode === "link" ? !!yt.snap : !!state.video; }
+function sourceReady() { return state.mode === "link" ? !!yt.cap : !!state.video; }
 function presetCrop() {
   const { w, h } = srcFrame();
   return { x: 0, y: Math.round(h * 0.87), w, h: Math.round(h * 0.13) };
 }
 
 async function seekPreview(t) {
-  if (state.mode === "link") return ytPreview(t);
   await seekTo(state.video, t);
   layoutPreview();
   $("seekLabel").textContent = fmtTime(t);
@@ -301,10 +314,10 @@ function drawPreview() {
 }
 
 $("seek").addEventListener("input", e => {
-  if (sourceReady()) seekPreview(srcFrame().dur * e.target.value / 100);
+  if (state.video) seekPreview(srcFrame().dur * e.target.value / 100);
 });
 $("presetBottom").addEventListener("click", () => {
-  if (!sourceReady()) return;
+  if (!state.video) return;
   state.crop = presetCrop();
   drawPreview();
 });
@@ -437,14 +450,14 @@ function findBandRows(pairs, w, h) {
 }
 
 // 표본을 순서대로 넣으면 페이지 구간(run)을 나눠 준다. onRunEnd(run)는 페이지가 확정될 때마다 호출된다.
-// exclude: 판정에서 뺄 픽셀(0)을 표시한 마스크 (없으면 null)
-function createDetector(w, h, band, onRunEnd, exclude) {
+// uiMask: 유튜브 플레이어 버튼이 뜰 수 있는 자리(0) 마스크 (링크 모드만). f.ui 표본에서만 그 자리를 판정·기준 이미지에서 뺀다
+function createDetector(w, h, band, onRunEnd, uiMask) {
   const n = w * h, gw = Math.ceil(w / BLK), gh = Math.ceil(h / BLK);
   // 판정 영역: 악보 띠 행에서 위아래·좌우 가장자리 2px를 뺀 곳
   const base = new Uint8Array(n);
   for (let y = Math.max(2, band[0] + 2); y <= Math.min(h - 3, band[1] - 2); y++) base.fill(1, y * w + 2, y * w + w - 2);
-  if (exclude) for (let p = 0; p < n; p++) base[p] &= exclude[p];
-  let mask = base;
+  const withUi = m => { if (!uiMask) return m; const o = m.slice(); for (let p = 0; p < n; p++) o[p] &= uiMask[p]; return o; };
+  let mask = base, maskUi = withUi(base);
   const bhist = new Uint8Array(gw * gh);
   let last = null, cur = null, pend = null;
   const runs = [];
@@ -476,13 +489,16 @@ function createDetector(w, h, band, onRunEnd, exclude) {
           for (let y = Math.max(0, (by - 1) * BLK), y1 = Math.min(h, (by + 2) * BLK); y < y1; y++) mask.fill(0, y * w + x0, y * w + x1);
         }
       }
+      maskUi = withUi(mask);
     }
     last = f;
   }
 
   function addTo(r, f) {
     r.members.push(f.i);
-    for (let p = 0; p < n; p++) { r.inkV[p] += f.ink[p]; r.papV[p] += f.paper[p]; }
+    // 버튼이 떴을 수 있는 표본은 버튼 자리를 기준 이미지에 반영하지 않는다
+    if (f.ui && uiMask) { for (let p = 0; p < n; p++) if (uiMask[p]) { r.inkV[p] += f.ink[p]; r.papV[p] += f.paper[p]; } }
+    else for (let p = 0; p < n; p++) { r.inkV[p] += f.ink[p]; r.papV[p] += f.paper[p]; }
     r.ref = null;
     if (onRunEnd) {
       r.keep.push({ i: f.i, data: f.data, ui: !!f.ui });
@@ -538,10 +554,10 @@ function createDetector(w, h, band, onRunEnd, exclude) {
     observe(f);
     if (!cur) { cur = newRun(f); return; }
     const ref = refOf(cur);
-    const d = inkDiff(ref.ink, ref.solid, f.ink, f.solid, mask);
+    const d = inkDiff(ref.ink, ref.solid, f.ink, f.solid, f.ui ? maskUi : mask);
     if (pend) {
       if (d <= FLIP_T) { pend = null; }                                   // 직전 변화는 일시적이었다 (전환 잔상 등)
-      else if (inkDiff(pend.ink, pend.solid, f.ink, f.solid, mask) <= FLIP_T) {
+      else if (inkDiff(pend.ink, pend.solid, f.ink, f.solid, f.ui || pend.ui ? maskUi : mask) <= FLIP_T) {
         close(); cur = newRun(pend); pend = null; addTo(cur, f); return;   // 연속 2표본이 같은 새 페이지: 넘김 확정
       } else { pend = f; return; }                                         // 전환이 진행 중: 최신 표본으로 다시 확인
     }
@@ -683,9 +699,10 @@ async function run() {
   showResult();
 }
 
+// 링크 모드에서는 플레이어 바로 아래 진행 막대도 함께 갱신한다
 function setProgress(pct, msg) {
-  $("progressFill").style.width = pct.toFixed(1) + "%";
-  $("status").textContent = msg;
+  $("progressFill").style.width = $("linkFill").style.width = pct.toFixed(1) + "%";
+  $("status").textContent = $("linkStatus").textContent = msg;
 }
 function finish(msg, cls) {
   state.running = false;
@@ -712,13 +729,18 @@ const QUALITIES = ["highres", "hd2880", "hd2160", "hd1440", "hd1080", "hd720", "
 // 탐색(seek)·배속 변경 직후 유튜브 플레이어가 공유·동영상 더보기 버튼과 가운데 재생 아이콘을 몇 초간 띄운다
 // (실측: 조작 뒤 최대 4.6초 보이고 5초엔 사라짐. 배속 변경 때는 뜰 때도 있고 안 뜰 때도 있다)
 const PLAYER_UI_WAIT = 6000;
-// 그 버튼들이 뜨는 자리 (플레이어 대비 비율 x0, y0, x1, y1)
-const PLAYER_UI_BOXES = [[0, 0.88, 0.07, 1], [0.75, 0.88, 0.97, 1], [0.44, 0.40, 0.56, 0.60]];
+// 그 버튼들이 뜨는 자리. 버튼 크기는 플레이어 크기와 무관하게 CSS px로 고정이라 가장자리 기준 px로 잡는다
+// (실측: 공유 = 왼쪽 31~86px·아래 13~63px, 동영상 더보기 = 오른쪽에서 172~350px·아래 10~58px, 재생 아이콘 = 가운데 지름 약 60px)
+function playerUiBoxes(W, H) {
+  return [[0, H - 110, 130, H], [W - 440, H - 110, W - 110, H], [W / 2 - 70, H / 2 - 70, W / 2 + 70, H / 2 + 70]]
+    .map(([x0, y0, x1, y1]) => [x0 / W, y0 / H, x1 / W, y1 / H]);
+}
 
 // 플레이어 버튼 자리를 크롭 좌표의 제외 마스크로 바꾼다 (0 = 판정 제외)
 function playerUiMask(frac, w, h) {
   const m = new Uint8Array(w * h).fill(1);
-  for (const [x0, y0, x1, y1] of PLAYER_UI_BOXES) {
+  const st = $("ytStage").getBoundingClientRect();
+  for (const [x0, y0, x1, y1] of playerUiBoxes(st.width, st.height)) {
     const cx0 = Math.max(0, Math.floor((x0 - frac.x) / frac.w * w)), cx1 = Math.min(w, Math.ceil((x1 - frac.x) / frac.w * w));
     const cy0 = Math.max(0, Math.floor((y0 - frac.y) / frac.h * h)), cy1 = Math.min(h, Math.ceil((y1 - frac.y) / frac.h * h));
     for (let y = cy0; y < cy1; y++) if (cx1 > cx0) m.fill(0, y * w + cx0, y * w + cx1);
@@ -736,9 +758,9 @@ function setMode(mode) {
   $("linkMode").hidden = mode !== "link";
   $("linkRunHint").hidden = $("rateWrap").hidden = mode !== "link";
   const ready = sourceReady();
-  $("stepCrop").hidden = $("stepRun").hidden = !ready;
-  // 소스마다 픽셀 크기가 달라 크롭은 기본값으로 되돌린다
-  if (ready) { state.crop = presetCrop(); layoutPreview(); }
+  $("stepCrop").hidden = mode === "link" || !ready; // 링크 모드 크롭은 플레이어 위에서 지정한다
+  $("stepRun").hidden = !ready;
+  if (mode === "file" && ready) layoutPreview();
 }
 
 function ytMsg(text, cls) {
@@ -779,8 +801,8 @@ async function loadYoutube() {
   const host = document.createElement("div");
   $("ytStage").prepend(host);
   $("ytBox").hidden = false;
-  yt.snap = null; yt.error = null; yt.duration = 0;
-  $("stepCrop").hidden = $("stepRun").hidden = true;
+  yt.crop = null; yt.error = null; yt.duration = 0; // 영상마다 악보 위치가 다를 수 있어 크롭은 기본값부터
+  $("stepRun").hidden = $("linkCrop").hidden = $("cropBox").hidden = true;
   try {
     await new Promise((res, rej) => {
       yt.player = new YT.Player(host, {
@@ -840,17 +862,64 @@ async function connectCapture() {
   }
   yt.stream = stream; yt.cap = v;
   $("capBtn").disabled = true; $("capBtn").textContent = "화면 공유 연결됨";
-  ytMsg("");
+  // 캡처 해상도는 화면에 보이는 플레이어 크기(물리 픽셀)로 정해진다. 원본(1080p)보다 많이 작으면 작은 차이를 놓칠 수 있다
+  ytMsg(v.videoWidth < 1600
+    ? `화면 해상도가 낮아(캡처 폭 ${v.videoWidth}px) 마디 번호만 다른 페이지처럼 작은 차이를 놓칠 수 있어요. 고해상도(레티나) 화면에서 쓰거나 파일 업로드를 이용해 주세요.`
+    : "", v.videoWidth < 1600 ? "warn" : "");
   await afterCaptureReady();
 }
 
-// 캡처와 플레이어가 모두 준비되면 크롭 지정 단계로
+// 캡처와 플레이어가 모두 준비되면 플레이어 위에서 악보 영역을 지정한다
 async function afterCaptureReady() {
   if (!yt.player || !yt.cap) return;
-  yt.snap = null;
-  $("stepCrop").hidden = $("stepRun").hidden = false;
-  await ytPreview(yt.duration * 0.15);
+  if (!yt.crop) yt.crop = { ...LINK_PRESET };
+  drawLinkCrop();
+  $("cropBox").hidden = $("linkCrop").hidden = $("stepRun").hidden = false;
+  $("ytShield").classList.add("cropping");
+  $("ytSeek").value = 15;
+  ytScrub(yt.duration * 0.15);
 }
+
+// ---------- 링크 모드 크롭: 플레이어 위에서 드래그 (플레이어 대비 비율로 저장) ----------
+const LINK_PRESET = { x: 0, y: 0.87, w: 1, h: 0.13 };
+const clamp01 = v => Math.min(1, Math.max(0, v));
+
+function drawLinkCrop() {
+  const c = yt.crop;
+  Object.assign($("cropBox").style, { left: c.x * 100 + "%", top: c.y * 100 + "%", width: c.w * 100 + "%", height: c.h * 100 + "%" });
+}
+
+function stagePoint(e) {
+  const r = $("ytStage").getBoundingClientRect();
+  return { x: clamp01((e.clientX - r.left) / r.width), y: clamp01((e.clientY - r.top) / r.height) };
+}
+
+let linkDrag = null;
+$("ytShield").addEventListener("pointerdown", e => {
+  if (!yt.cap || state.running) return;
+  linkDrag = stagePoint(e);
+  $("ytShield").setPointerCapture(e.pointerId);
+});
+$("ytShield").addEventListener("pointermove", e => {
+  if (!linkDrag) return;
+  const cur = stagePoint(e);
+  const w = Math.abs(cur.x - linkDrag.x), h = Math.abs(cur.y - linkDrag.y);
+  if (w > 0.01 && h > 0.01) {
+    yt.crop = { x: Math.min(linkDrag.x, cur.x), y: Math.min(linkDrag.y, cur.y), w, h };
+    drawLinkCrop();
+  }
+});
+$("ytShield").addEventListener("pointerup", () => { linkDrag = null; });
+$("ytPreset").addEventListener("click", () => { yt.crop = { ...LINK_PRESET }; drawLinkCrop(); });
+
+// 크롭을 지정하는 동안은 소리 없이 계속 재생해 둔다 (멈추면 유튜브가 '동영상 더보기' 화면으로 악보를 가린다)
+function ytScrub(t) {
+  yt.player.seekTo(t, true);
+  yt.player.playVideo();
+  $("ytSeekLabel").textContent = fmtTime(t);
+}
+$("ytSeek").addEventListener("input", e => { $("ytSeekLabel").textContent = fmtTime(yt.duration * e.target.value / 100); });
+$("ytSeek").addEventListener("change", e => { if (yt.player && !state.running) ytScrub(yt.duration * e.target.value / 100); });
 
 // 지정 시점부터 재생해 그 시점 프레임이 화면에 나올 때까지 기다린다.
 // seekTo 직후 getCurrentTime()은 잠깐 이전 위치를 돌려줄 수 있어서 목표 근처에 올 때까지 확인한다
@@ -866,78 +935,53 @@ async function ytPlayAt(t) {
   await sleep(300); // 캡처 스트림에 새 프레임이 도착할 시간
 }
 
-// Region Capture는 화면에 보이는 부분만 잘라 오므로, 캡처할 때는 플레이어를 화면 가득 띄운다
-function setCapturing(on) {
-  document.body.classList.toggle("capturing", on);
-  return sleep(on ? 500 : 0); // 레이아웃·캡처 해상도 반영 대기
-}
-
-function grabSnapshot() {
-  const v = yt.cap, c = document.createElement("canvas");
-  c.width = v.videoWidth; c.height = v.videoHeight;
-  c.getContext("2d").drawImage(v, 0, 0);
-  return c;
-}
-
-let ytPreviewBusy = false, ytPreviewNext = null;
-async function ytPreview(t) {
-  // 슬라이더를 끄는 동안 요청이 쌓이지 않게 마지막 요청만 이어서 처리한다
-  if (ytPreviewBusy) { ytPreviewNext = t; return; }
-  ytPreviewBusy = true;
-  try {
-    // 추출 때와 같은 화면 가득 레이아웃에서 스냅샷을 떠야 크롭 좌표가 그대로 맞는다
-    await setCapturing(true);
-    await ytPlayAt(t);
-    const prev = yt.snap, snap = grabSnapshot();
-    yt.player.pauseVideo();
-    await setCapturing(false);
-    yt.snap = snap;
-    if (!prev || !state.crop) state.crop = presetCrop();
-    else if (prev.width !== snap.width || prev.height !== snap.height) {
-      // 창 크기가 바뀌어 캡처 해상도가 달라졌으면 크롭을 같은 비율로 옮긴다
-      const kx = snap.width / prev.width, ky = snap.height / prev.height, c = state.crop;
-      state.crop = { x: Math.round(c.x * kx), y: Math.round(c.y * ky), w: Math.round(c.w * kx), h: Math.round(c.h * ky) };
-    }
-    layoutPreview();
-    $("seekLabel").textContent = fmtTime(t);
-  } finally {
-    document.body.classList.remove("capturing");
-    ytPreviewBusy = false;
-  }
-  if (ytPreviewNext !== null) { const n = ytPreviewNext; ytPreviewNext = null; ytPreview(n); }
-}
-
 $("capCancel").addEventListener("click", () => { state.cancelled = true; });
 
-function capStatus(msg) { $("capStatus").textContent = msg; }
+// 추출 중: 크롭 표시는 캡처 화면에 찍히지 않게 숨기고, 진행 상황은 플레이어 바로 아래에 보인다
+function setLinkRunning(on) {
+  $("cropBox").hidden = $("linkCrop").hidden = $("capRow").hidden = on;
+  $("linkProgress").hidden = !on;
+  $("ytShield").classList.toggle("cropping", !on);
+  if (!on) document.documentElement.style.overflow = "";
+}
+
+// Region Capture는 화면에 보이는 부분만 잘라 온다. 플레이어 전체가 보이게 스크롤한 뒤 진행 중에는 스크롤을 막는다.
+// 창이 작아서 플레이어가 다 들어오지 않으면 false
+async function bringStageIntoView() {
+  const top = window.scrollY + $("ytStage").getBoundingClientRect().top - 12;
+  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  await sleep(700);
+  document.documentElement.style.overflow = "hidden";
+  const r = $("ytStage").getBoundingClientRect();
+  return r.top >= -1 && r.left >= -1 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1;
+}
 
 async function runLink() {
-  if (!yt.cap || !yt.snap || state.running || ytPreviewBusy) return;
+  if (!yt.cap || !yt.crop || state.running) return;
   const interval = parseFloat($("interval").value);
   const rate = parseFloat($("rate").value);
-  const p = yt.player, snap = yt.snap, c = state.crop;
-  // 크롭은 비율로 바꿔 둔다: 창 크기가 바뀌면 캡처 해상도도 달라진다
-  const frac = { x: c.x / snap.width, y: c.y / snap.height, w: c.w / snap.width, h: c.h / snap.height };
+  const p = yt.player, frac = { ...yt.crop };
   beginRun();
-  $("capBar").hidden = false;
+  setLinkRunning(true);
+  let tooSmall = false;
   try {
-    await setCapturing(true);
-    await captureAndExtract(p, frac, interval, rate);
+    if (await bringStageIntoView()) await captureAndExtract(p, frac, interval, rate);
+    else { tooSmall = true; state.cancelled = true; }
   } finally {
     p.pauseVideo();
-    setCapturing(false);
-    $("capBar").hidden = true;
+    setLinkRunning(false);
   }
+  if (tooSmall) return finish("창이 작아 플레이어가 화면에 다 들어오지 않아요. 창을 키우거나 브라우저 확대 비율을 줄인 뒤 다시 시도해 주세요.", "warn");
   if (state.cancelled) return finish("중단됨", "warn");
   showResult();
-  $("stepRun").scrollIntoView({ block: "start" });
+  if (yt.lastRun.skipped) $("status").textContent += ` · 화면을 읽지 못해 건너뛴 표본 ${yt.lastRun.skipped}개`;
+  ($("stepResult").hidden ? $("stepRun") : $("stepResult")).scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 async function captureAndExtract(p, frac, interval, rate) {
   // 1) 화질 예열: 유튜브는 처음 몇 초를 저화질로 재생한다.
   //    영상 중간에서 자동 화질이 오를 때까지 재생한 뒤 처음으로 되감는다
   //    (처음 구간을 예열에 쓰면 저화질로 받아 둔 버퍼가 그대로 재생된다)
-  capStatus("화질 맞추는 중...");
   setProgress(0, "화질 맞추는 중...");
   p.setPlaybackRate(1);
   await ytPlayAt(yt.duration * 0.5);
@@ -958,12 +1002,13 @@ async function captureAndExtract(p, frac, interval, rate) {
   const capture = () => {
     const vw = yt.cap && yt.cap.videoWidth, vh = yt.cap && yt.cap.videoHeight;
     if (!vw || !vh) return undefined;
+    // 플레이어 일부가 화면 밖이면 캡처 프레임이 잘려 16:9가 아니게 된다: 크롭 좌표가 어긋나므로 쓰지 않는다
+    if (Math.abs(vw / vh - 16 / 9) > 0.03) return undefined;
     dc.ctx.drawImage(yt.cap, frac.x * vw, frac.y * vh, frac.w * vw, frac.h * vh, 0, 0, outW, outH);
     return readFrame(dc);
   };
 
   // 2) 사전 스캔: 영상 세 지점에서 0.5초 간격 프레임을 모아 크롭에 섞인 영상 행을 찾는다
-  capStatus("악보 영역 확인 중...");
   setProgress(0, "악보 영역 확인 중...");
   const pairs = [];
   for (const pos of [0.2, 0.5, 0.8]) {
@@ -984,13 +1029,16 @@ async function captureAndExtract(p, frac, interval, rate) {
   // 3) 처음부터 배속 재생하며 일정 간격(영상 시간 기준)으로 샘플링.
   //    실시간 캡처라 나중에 되돌아가 볼 수 없으므로 페이지가 확정될 때마다 보관해 둔 프레임으로 바로 합성한다
   const det = createDetector(outW, outH, band.rows, r => {
-    // 플레이어 버튼이 덮었을 수 있는 표본은 깨끗한 표본이 하나라도 있으면 합성에서 뺀다
+    // 플레이어 버튼이 덮었을 수 있는 표본은 깨끗한 표본이 하나라도 있으면 합성에서 뺀다.
+    // 깨끗한 표본이 하나도 없는 페이지(되감은 직후 몇 초 안에 통째로 지나간 페이지)는 결과에 표시해 둔다
     const clean = r.keep.filter(f => !f.ui);
     const pool = clean.length ? clean : r.keep;
+    r.uiOnly = !clean.length;
     const picked = compositeMembers(pool.map((_, j) => j)).map(j => pool[j]);
     r.canvas = compositeFrames(picked.map(f => f.data), outW, outH);
-  }, playerUiMask(frac, outW, outH)); // 버튼 자리는 페이지 넘김 판정에서도 뺀다
+  }, playerUiMask(frac, outW, outH)); // 버튼이 떴을 수 있는 표본에서는 버튼 자리를 판정에서 뺀다
   const times = [], qualities = new Set();
+  let skipped = 0;
   yt.ended = false;
   // 배속을 먼저 바꾸고 처음으로 한 번만 되감은 뒤, 끝까지 플레이어를 건드리지 않는다.
   // 되감은 직후 PLAYER_UI_WAIT 동안 찍은 표본은 버튼이 덮었을 수 있다고 표시해 둔다
@@ -1008,10 +1056,9 @@ async function captureAndExtract(p, frac, interval, rate) {
         if (f) { f.i = times.length; f.ui = performance.now() < uiUntil; }
         times.push(t);
         det.push(f);
-      }
+      } else skipped++;
       qualities.add(p.getPlaybackQuality());
       const msg = `캡처 중 ${fmtTime(t)} / ${fmtTime(yt.duration)} · 페이지 ${det.count}`;
-      capStatus(msg);
       setProgress(Math.min(95, t / yt.duration * 95), msg);
     }
     next += period;
@@ -1020,12 +1067,13 @@ async function captureAndExtract(p, frac, interval, rate) {
     await sleep(Math.max(0, wait));
   }
   const runs = det.finish();
-  yt.lastRun = { samples: times.length, outW, outH, rate, interval, qualities: [...qualities] };
+  yt.lastRun = { samples: times.length, skipped, outW, outH, rate, interval, qualities: [...qualities],
+                 capture: [yt.cap ? yt.cap.videoWidth : 0, yt.cap ? yt.cap.videoHeight : 0] };
   state.lastDetect = { ...det.stats, band: band.rows, bandFallback: band.fallback, prescanPairs: band.used,
                        height: outH, samples: times.length, pages: runs.length };
   if (state.cancelled) return;
   if (yt.error) { state.cancelled = true; return; }
-  state.pages = runs.map(r => ({ canvas: r.canvas, t: times[r.members[r.members.length >> 1]] }));
+  state.pages = runs.map(r => ({ canvas: r.canvas, t: times[r.members[r.members.length >> 1]], uiWarn: r.uiOnly }));
 }
 
 // ---------- 4. 결과 ----------
@@ -1039,6 +1087,7 @@ function renderPages() {
     img.src = p.canvas.toDataURL("image/png");
     const idx = document.createElement("span");
     idx.className = "idx"; idx.textContent = `${i + 1} · ${fmtTime(p.t)}`;
+    if (p.uiWarn) idx.textContent += " · 유튜브 버튼에 일부 가려졌을 수 있음";
     const del = document.createElement("button");
     del.className = "del"; del.textContent = "삭제";
     del.onclick = () => { state.pages.splice(i, 1); renderPages(); };
