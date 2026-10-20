@@ -79,6 +79,23 @@
   #linkFill { height: 100%; width: 0%; background: var(--accent); transition: width .2s; }
   #linkStatus { font-size: 13px; color: var(--sub); margin-top: 6px; }
   #linkStatus.warn { color: var(--warn); }
+  /* 링크 모드 하위 단계 (2 화면 읽기 허용, 3 악보 위치 맞추기) */
+  .sub { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+  .sub h3 { margin: 0 0 4px; font-size: 15px; }
+  h3 .step { display: inline-block; background: var(--accent); color: var(--accent-ink);
+             border-radius: 999px; font-size: 12px; padding: 2px 9px; margin-right: 8px; vertical-align: 1px; }
+  .done { font-size: 12px; color: var(--ok); font-weight: 600; margin-left: 4px; }
+  .howto { background: #f3f6fb; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+           font-size: 13px; line-height: 1.7; margin: 4px 0 2px; }
+  .howto ol { margin: 4px 0 6px; padding-left: 20px; color: var(--sub); }
+  #advanced { margin-top: 12px; font-size: 13px; color: var(--sub); }
+  #advanced summary { cursor: pointer; }
+  /* 진행 단계 표시 */
+  .stages { display: flex; gap: 6px; flex-wrap: wrap; list-style: none; padding: 0; margin: 0 0 10px; }
+  .stages li { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--sub); }
+  .stages li.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .stages li.done { border-color: var(--ok); color: var(--ok); }
+  .stages li.done::before { content: "✓ "; }
   #printArea { display: none; }
   @media print {
     body > header, body > main, body > footer { display: none !important; }
@@ -107,10 +124,9 @@
     <input type="file" id="fileInput" accept="video/*">
   </div>
   <div id="linkMode" hidden>
-    <p class="hint">영상을 이 페이지에서 재생하면서 화면을 캡처해 악보를 읽습니다. 서버로 전송되는 것은 없습니다.<br>
-       <strong>PC의 Chrome·Edge 전용</strong>이고, 영상을 2배속으로 끝까지 재생하므로 영상 길이의 절반 정도 걸립니다.</p>
+    <p class="hint">유튜브 영상을 이 페이지에서 재생하면서 화면을 읽어 악보를 찾습니다. <strong>PC의 Chrome·Edge 전용</strong>입니다.</p>
     <div class="row">
-      <input type="url" id="ytUrl" placeholder="https://www.youtube.com/watch?v=...">
+      <input type="url" id="ytUrl" placeholder="유튜브 영상 주소 붙여넣기 (https://www.youtube.com/watch?v=...)">
       <button id="ytLoad" class="primary">불러오기</button>
     </div>
     <div id="ytStatus"></div>
@@ -120,12 +136,20 @@
         <div id="ytShield"></div>
         <div id="cropBox" hidden></div>
       </div>
-      <div class="row" id="capRow">
-        <button id="capBtn" class="primary">화면 공유 연결</button>
-        <span class="hint" style="margin:0">공유할 화면을 고르는 창이 뜨면 <strong>이 탭</strong>을 선택해 주세요.</span>
+      <div class="sub" id="capStep">
+        <h3><span class="step">2</span>화면 읽기 허용 <span class="done" id="capDone" hidden>완료</span></h3>
+        <p class="hint">유튜브 영상은 파일로 받을 수 없어서, <strong>이 탭에 보이는 위 플레이어 화면만</strong> 읽어 악보를 찾습니다.
+           다른 탭·창이나 바탕화면은 보지 않고, 읽은 화면은 이 브라우저 밖으로 보내지 않습니다.</p>
+        <div class="row">
+          <button id="capBtn" class="primary">화면 읽기 허용</button>
+          <span class="hint" style="margin:0">브라우저가 이 탭을 공유할지 물으면 <strong>허용(공유)</strong>을 눌러 주세요.
+            공유할 화면을 고르는 창이 나오면 <strong>이 탭</strong>을 골라 주세요.</span>
+        </div>
       </div>
-      <div id="linkCrop" hidden>
-        <p class="hint" style="margin:10px 0 0">플레이어 위에서 악보 띠를 <strong>드래그로 감싸</strong> 주세요. 슬라이더로 다른 시점으로 옮길 수 있습니다. (기본값: 화면 하단 13%)</p>
+      <div class="sub" id="linkCrop" hidden>
+        <h3><span class="step">3</span>악보 위치 맞추기</h3>
+        <p class="hint">플레이어 위 <strong>파란 박스</strong>가 악보 띠를 감싸도록 드래그해서 다시 그려 주세요.
+           지금 장면에 악보가 안 보이면 아래 슬라이더로 악보가 나오는 장면으로 옮기세요. (기본값: 화면 하단 13%)</p>
         <div class="row">
           <input type="range" id="ytSeek" min="0" max="100" step="0.1" value="15">
           <span class="mono" id="ytSeekLabel">0:00</span>
@@ -133,8 +157,15 @@
         </div>
       </div>
       <div id="linkProgress" hidden>
+        <ol class="stages">
+          <li>준비: 화질 맞추기</li>
+          <li>준비: 악보 위치 확인</li>
+          <li>악보 읽기</li>
+        </ol>
         <div class="row"><div id="linkBar"><div id="linkFill"></div></div><button id="capCancel">중단</button></div>
         <div id="linkStatus"></div>
+        <p class="hint" style="margin:6px 0 0">영상은 자동으로 앞뒤로 이동하고 재생돼요. <strong>건드리지 않아도 되고, 끝날 때까지 이 탭을 띄워 두세요.</strong>
+           다른 탭으로 가면 일시정지했다가, 돌아오면 이어서 진행합니다.</p>
       </div>
     </div>
   </div>
@@ -152,21 +183,34 @@
 </section>
 
 <section id="stepRun" hidden>
-  <h2><span class="step">3</span>추출</h2>
+  <h2><span class="step" id="runStepNo">3</span>추출</h2>
   <p class="hint">현재 마디를 따라다니는 컬러 하이라이트가 있는 영상도 OK: 여러 프레임을 합성해 표시를 지우고 깨끗한 악보만 남깁니다.
      악보 영역에 영상이 조금 섞여도 움직이는 부분은 자동으로 판정에서 빠집니다.</p>
-  <p class="hint" id="linkRunHint" hidden>추출을 누르면 플레이어가 보이는 위치로 화면이 옮겨지고, 영상 몇 군데를 잠깐 재생해 화질과 악보 영역을 확인한 뒤 처음부터 2배속으로 재생합니다. 진행 상황은 플레이어 바로 아래에 표시됩니다.
-     <strong>끝날 때까지 이 탭을 띄워 두세요</strong> (다른 탭으로 가면 재생이 멈출 수 있어요. 진행 중에는 화면이 스크롤되지 않습니다).</p>
+  <div class="howto" id="linkRunHint" hidden>
+    <strong>추출을 누르면 이렇게 진행돼요 (<span id="linkEta">몇 분</span>)</strong>
+    <ol>
+      <li>준비: 화질 맞추기 - 영상 앞쪽을 잠깐 재생합니다</li>
+      <li>준비: 악보 위치 확인 - 영상 중간과 뒤쪽으로 잠깐씩 이동합니다</li>
+      <li>악보 읽기 - 처음으로 돌아가 <span id="linkRateLabel">2배속</span>으로 끝까지 재생합니다</li>
+    </ol>
+    영상은 자동으로 움직이니 건드리지 않아도 됩니다. 진행 중에는 화면이 플레이어 위치에 고정되고, 진행 상황은 플레이어 바로 아래에 보입니다.
+  </div>
   <div class="row">
-    <label id="rateWrap" hidden>재생 속도
-      <select id="rate"><option value="1">1배 (느림)</option><option value="1.5">1.5배</option><option value="2" selected>2배 (권장)</option></select>
-    </label>
-    <label>샘플 간격
-      <select id="interval"><option value="0.25">0.25초 (정밀)</option><option value="0.5" selected>0.5초 (권장)</option><option value="1">1초 (빠름)</option></select>
-    </label>
     <button id="runBtn" class="primary">추출 시작</button>
     <button id="cancelBtn" hidden>중단</button>
   </div>
+  <details id="advanced">
+    <summary>고급 설정</summary>
+    <div class="row">
+      <label id="rateWrap" hidden>재생 속도
+        <select id="rate"><option value="1">1배</option><option value="1.5">1.5배</option><option value="2" selected>2배 (권장)</option></select>
+      </label>
+      <label>샘플 간격
+        <select id="interval"><option value="0.25">0.25초</option><option value="0.5" selected>0.5초 (권장)</option><option value="1">1초</option></select>
+      </label>
+    </div>
+    <p class="hint">보통은 바꿀 필요가 없습니다. 샘플 간격을 줄이면 아주 짧게 지나가는 페이지도 잡지만 오래 걸리고, 늘리면 빨라지는 대신 놓칠 수 있습니다.</p>
+  </details>
   <div id="progressWrap" hidden>
     <div id="progressBar"><div id="progressFill"></div></div>
   </div>
@@ -174,7 +218,7 @@
 </section>
 
 <section id="stepResult" hidden>
-  <h2><span class="step">4</span>결과</h2>
+  <h2><span class="step" id="resultStepNo">4</span>결과</h2>
   <p class="hint">잘못 잡힌 페이지는 마우스를 올려 <strong>삭제</strong>할 수 있습니다.</p>
   <div id="pages"></div>
   <div class="row">
@@ -185,7 +229,7 @@
 </section>
 
 </main>
-<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v4.1-beta</footer>
+<footer>개인 연습용 도구입니다. 추출한 악보를 공개적으로 배포하는 것은 원 영상 제작자의 저작권을 침해할 수 있어요. · v4.2-beta</footer>
 <div id="printArea"></div>
 
 <script>
@@ -757,6 +801,9 @@ function setMode(mode) {
   $("fileMode").hidden = mode !== "file";
   $("linkMode").hidden = mode !== "link";
   $("linkRunHint").hidden = $("rateWrap").hidden = mode !== "link";
+  // 링크 모드는 2(화면 읽기 허용)·3(악보 위치 맞추기)이 플레이어 아래 하위 단계라 추출이 4, 결과가 5
+  $("runStepNo").textContent = mode === "link" ? 4 : 3;
+  $("resultStepNo").textContent = mode === "link" ? 5 : 4;
   const ready = sourceReady();
   $("stepCrop").hidden = mode === "link" || !ready; // 링크 모드 크롭은 플레이어 위에서 지정한다
   $("stepRun").hidden = !ready;
@@ -818,7 +865,8 @@ async function loadYoutube() {
     });
   } catch { return; }
   yt.duration = yt.player.getDuration();
-  ytMsg(yt.stream ? "불러왔어요." : "불러왔어요. 아래 '화면 공유 연결'을 눌러 주세요.");
+  updateLinkEta();
+  ytMsg(yt.stream ? "불러왔어요." : "불러왔어요. 플레이어 아래 ② 화면 읽기 허용을 눌러 주세요.");
   if (yt.stream) await afterCaptureReady();
 }
 
@@ -826,7 +874,7 @@ $("capBtn").addEventListener("click", connectCapture);
 
 async function connectCapture() {
   if (!navigator.mediaDevices?.getDisplayMedia || !window.CropTarget) {
-    return ytMsg("이 브라우저는 탭 캡처를 지원하지 않아요. PC의 Chrome 또는 Edge에서 열어 주세요.", "warn");
+    return ytMsg("이 브라우저는 화면 읽기(탭 공유)를 지원하지 않아요. PC의 Chrome 또는 Edge에서 열어 주세요.", "warn");
   }
   let stream;
   try {
@@ -835,7 +883,7 @@ async function connectCapture() {
       audio: false, preferCurrentTab: true, selfBrowserSurface: "include", surfaceSwitching: "exclude",
     });
   } catch {
-    return ytMsg("화면 공유가 취소됐어요. 다시 눌러서 이 탭을 공유해 주세요.", "warn");
+    return ytMsg("허용이 취소됐어요. '화면 읽기 허용'을 다시 눌러 이 탭을 공유해 주세요.", "warn");
   }
   const track = stream.getVideoTracks()[0];
   try {
@@ -843,13 +891,13 @@ async function connectCapture() {
     await track.cropTo(await CropTarget.fromElement($("ytStage")));
   } catch {
     stream.getTracks().forEach(t => t.stop());
-    return ytMsg("'이 탭'을 선택해야 플레이어 영역만 읽을 수 있어요. 다시 시도해 주세요.", "warn");
+    return ytMsg("다른 탭이나 창이 선택됐어요. '이 탭'을 공유해야 플레이어 화면을 읽을 수 있어요. 다시 시도해 주세요.", "warn");
   }
   track.addEventListener("ended", () => {
     yt.stream = yt.cap = null;
-    $("capBtn").disabled = false; $("capBtn").textContent = "화면 공유 연결";
+    $("capBtn").disabled = false; $("capBtn").textContent = "화면 읽기 허용"; $("capDone").hidden = true;
     if (state.running) state.cancelled = true;
-    ytMsg("화면 공유가 끊겼어요. 다시 연결해 주세요.", "warn");
+    ytMsg("화면 읽기가 중지됐어요(공유 중지). ② 화면 읽기 허용을 다시 눌러 주세요.", "warn");
   });
   const v = document.createElement("video");
   v.muted = true; v.srcObject = stream;
@@ -858,10 +906,10 @@ async function connectCapture() {
   if (!v.videoWidth) {
     // 공유는 연결됐는데 화면이 한 장도 안 들어오는 경우 (드물게 실측): 빈 화면으로 진행하지 않는다
     stream.getTracks().forEach(t => t.stop());
-    return ytMsg("화면 공유 영상이 들어오지 않아요. 다시 '화면 공유 연결'을 눌러 주세요.", "warn");
+    return ytMsg("화면이 들어오지 않아요. '화면 읽기 허용'을 다시 눌러 주세요.", "warn");
   }
   yt.stream = stream; yt.cap = v;
-  $("capBtn").disabled = true; $("capBtn").textContent = "화면 공유 연결됨";
+  $("capBtn").disabled = true; $("capBtn").textContent = "허용됨"; $("capDone").hidden = false;
   // 캡처 해상도는 화면에 보이는 플레이어 크기(물리 픽셀)로 정해진다. 원본(1080p)보다 많이 작으면 작은 차이를 놓칠 수 있다
   ytMsg(v.videoWidth < 1600
     ? `화면 해상도가 낮아(캡처 폭 ${v.videoWidth}px) 마디 번호만 다른 페이지처럼 작은 차이를 놓칠 수 있어요. 고해상도(레티나) 화면에서 쓰거나 파일 업로드를 이용해 주세요.`
@@ -878,6 +926,7 @@ async function afterCaptureReady() {
   $("ytShield").classList.add("cropping");
   $("ytSeek").value = 15;
   ytScrub(yt.duration * 0.15);
+  updateLinkEta();
 }
 
 // ---------- 링크 모드 크롭: 플레이어 위에서 드래그 (플레이어 대비 비율로 저장) ----------
@@ -925,6 +974,7 @@ $("ytSeek").addEventListener("change", e => { if (yt.player && !state.running) y
 // seekTo 직후 getCurrentTime()은 잠깐 이전 위치를 돌려줄 수 있어서 목표 근처에 올 때까지 확인한다
 async function ytPlayAt(t) {
   const p = yt.player;
+  markPlayerAction();
   p.seekTo(t, true); p.playVideo();
   const t0 = performance.now();
   while (performance.now() - t0 < 10000 && !yt.error) {
@@ -932,14 +982,55 @@ async function ytPlayAt(t) {
     if (p.getPlayerState() === YT.PlayerState.PLAYING && Math.abs(p.getCurrentTime() - t) < 1.5) break;
   }
   if (!yt.duration) yt.duration = p.getDuration();
+  markPlayerAction(); // 버튼은 실제로 재생이 시작된 뒤에 뜨므로 이 시점부터 다시 센다
   await sleep(300); // 캡처 스트림에 새 프레임이 도착할 시간
 }
+
+// 플레이어를 조작한 시각. 조작 직후 PLAYER_UI_WAIT 동안은 유튜브 버튼이 떠 있을 수 있다
+function markPlayerAction() { yt.lastAction = performance.now(); }
+const playerUiMayShow = () => performance.now() < (yt.lastAction || 0) + PLAYER_UI_WAIT;
+const waitPlayerUi = () => sleep(Math.max(0, (yt.lastAction || 0) + PLAYER_UI_WAIT - performance.now()));
+
+// 진행 중 다른 탭으로 가면 화면이 그려지지 않아 읽을 수 없다: 숨는 즉시 일시정지하고, 돌아오면 이어서 재생한다
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && state.running && state.mode === "link" && yt.player) { yt.player.pauseVideo(); yt.hiddenPause = true; }
+});
+// 숨어서 멈췄던 경우 이 탭으로 돌아올 때까지 기다렸다가 재생을 이어 간다. 이어 갔으면 true
+async function resumeIfPaused() {
+  if (!yt.hiddenPause) return false;
+  while (document.hidden && !state.cancelled) await sleep(300);
+  yt.hiddenPause = false;
+  if (state.cancelled) return true;
+  yt.player.playVideo();
+  markPlayerAction();
+  yt.resumedAt = performance.now();
+  return true;
+}
+
+// 진행 단계 표시: 0 화질 맞추기, 1 악보 위치 확인, 2 악보 읽기, 3 = 모두 끝
+function setStage(k) {
+  document.querySelectorAll(".stages li").forEach((li, i) => {
+    li.classList.toggle("done", i < k);
+    li.classList.toggle("active", i === k);
+  });
+}
+
+const PREP_SEC = 45; // 준비 단계(화질 맞추기 + 악보 위치 확인)에 걸리는 대략적인 시간
+function fmtRemain(sec) { return sec < 60 ? "1분 이내" : `약 ${Math.ceil(sec / 60)}분`; }
+// 추출 전 안내의 예상 시간과 배속 표기
+function updateLinkEta() {
+  if (!yt.duration) return;
+  const rate = parseFloat($("rate").value);
+  $("linkEta").textContent = fmtRemain(yt.duration / rate + PREP_SEC);
+  $("linkRateLabel").textContent = `${rate}배속`;
+}
+$("rate").addEventListener("change", updateLinkEta);
 
 $("capCancel").addEventListener("click", () => { state.cancelled = true; });
 
 // 추출 중: 크롭 표시는 캡처 화면에 찍히지 않게 숨기고, 진행 상황은 플레이어 바로 아래에 보인다
 function setLinkRunning(on) {
-  $("cropBox").hidden = $("linkCrop").hidden = $("capRow").hidden = on;
+  $("cropBox").hidden = $("linkCrop").hidden = $("capStep").hidden = on;
   $("linkProgress").hidden = !on;
   $("ytShield").classList.toggle("cropping", !on);
   if (!on) document.documentElement.style.overflow = "";
@@ -979,15 +1070,18 @@ async function runLink() {
 }
 
 async function captureAndExtract(p, frac, interval, rate) {
-  // 1) 화질 예열: 유튜브는 처음 몇 초를 저화질로 재생한다.
-  //    영상 중간에서 자동 화질이 오를 때까지 재생한 뒤 처음으로 되감는다
-  //    (처음 구간을 예열에 쓰면 저화질로 받아 둔 버퍼가 그대로 재생된다)
-  setProgress(0, "화질 맞추는 중...");
+  // 1) 화질 맞추기: 유튜브는 재생 초반 몇 초를 저화질로 보여준다.
+  //    영상 앞쪽(20%)에서 자동 화질이 오를 때까지 재생한 뒤, 같은 자리에서 악보 위치 확인을 시작한다
+  //    (처음 구간을 쓰면 저화질로 받아 둔 버퍼가 그대로 재생된다).
+  //    플레이어 이동은 앞 -> 중간 -> 뒤 -> 처음 한 방향으로만 해서 덜 어지럽게 보이게 한다
+  setStage(0);
+  setProgress(0, "준비: 화질 맞추는 중 (영상 앞쪽을 잠깐 재생합니다)");
   p.setPlaybackRate(1);
-  await ytPlayAt(yt.duration * 0.5);
+  await ytPlayAt(yt.duration * 0.2);
   const levels = p.getAvailableQualityLevels().filter(q => QUALITIES.includes(q));
   const target = Math.max(levels.length ? QUALITIES.indexOf(levels[0]) : 0, QUALITIES.indexOf("hd1080"));
   for (let k = 0; k < 30 && !state.cancelled; k++) {
+    await resumeIfPaused();
     const qi = QUALITIES.indexOf(p.getPlaybackQuality());
     if (qi !== -1 && qi <= target) break;
     await sleep(500);
@@ -1008,17 +1102,19 @@ async function captureAndExtract(p, frac, interval, rate) {
     return readFrame(dc);
   };
 
-  // 2) 사전 스캔: 영상 세 지점에서 0.5초 간격 프레임을 모아 크롭에 섞인 영상 행을 찾는다
-  setProgress(0, "악보 영역 확인 중...");
-  const pairs = [];
-  for (const pos of [0.2, 0.5, 0.8]) {
+  // 2) 악보 위치 확인(사전 스캔): 영상 세 지점에서 0.5초 간격 프레임을 모아 크롭에 섞인 영상 행을 찾는다
+  setStage(1);
+  const pairs = [], spots = [[0.2, "앞쪽"], [0.5, "중간"], [0.8, "뒤쪽"]];
+  for (let j = 0; j < spots.length; j++) {
     if (state.cancelled || !yt.cap) return;
-    await ytPlayAt(yt.duration * pos);
-    await sleep(PLAYER_UI_WAIT); // 탐색 직후 뜨는 플레이어 버튼이 사라질 때까지
+    setProgress(3 + j * 2.5, `준비: 악보 위치 확인 중 ${j + 1}/3 (영상 ${spots[j][1]})`);
+    if (j > 0) await ytPlayAt(yt.duration * spots[j][0]); // 앞쪽은 화질 맞추기에서 이미 재생 중
+    await waitPlayerUi(); // 탐색 직후 뜨는 플레이어 버튼이 사라질 때까지
     let prev = capture();
     for (let k = 0; k < 5; k++) {
       await sleep(interval * 1000); // 1배속이라 영상 시간 = 실제 시간
-      if (!yt.cap) return;
+      if (state.cancelled || !yt.cap) return;
+      if (await resumeIfPaused()) { await waitPlayerUi(); prev = capture(); continue; }
       const f = capture();
       if (prev && f) pairs.push([{ ink: prev.ink, paper: prev.paper }, { ink: f.ink, paper: f.paper }]);
       prev = f;
@@ -1042,24 +1138,27 @@ async function captureAndExtract(p, frac, interval, rate) {
   yt.ended = false;
   // 배속을 먼저 바꾸고 처음으로 한 번만 되감은 뒤, 끝까지 플레이어를 건드리지 않는다.
   // 되감은 직후 PLAYER_UI_WAIT 동안 찍은 표본은 버튼이 덮었을 수 있다고 표시해 둔다
+  setStage(2);
+  setProgress(10, `악보 읽기: 처음으로 돌아가 ${rate}배속으로 재생합니다`);
   p.setPlaybackRate(rate);
   await ytPlayAt(0);
-  const uiUntil = performance.now() + PLAYER_UI_WAIT;
   const period = interval * 1000 / rate;
   let next = performance.now();
   while (!state.cancelled && !yt.error) {
+    if (await resumeIfPaused()) { next = performance.now(); continue; }
     if (yt.ended || p.getPlayerState() === YT.PlayerState.ENDED) break;
     if (p.getPlayerState() === YT.PlayerState.PLAYING && yt.cap) {
       const t = p.getCurrentTime();
       const f = capture();
       if (f !== undefined) {
-        if (f) { f.i = times.length; f.ui = performance.now() < uiUntil; }
+        if (f) { f.i = times.length; f.ui = playerUiMayShow(); }
         times.push(t);
         det.push(f);
       } else skipped++;
       qualities.add(p.getPlaybackQuality());
-      const msg = `캡처 중 ${fmtTime(t)} / ${fmtTime(yt.duration)} · 페이지 ${det.count}`;
-      setProgress(Math.min(95, t / yt.duration * 95), msg);
+      const resumed = performance.now() - (yt.resumedAt || -1e9) < 8000 ? " · 다른 탭에 다녀온 동안 일시정지했다가 이어서 진행 중" : "";
+      setProgress(10 + Math.min(1, t / yt.duration) * 88,
+        `악보 읽기 ${rate}배속 · ${fmtTime(t)} / ${fmtTime(yt.duration)} · 페이지 ${det.count} · 남은 시간 ${fmtRemain((yt.duration - t) / rate)}${resumed}`);
     }
     next += period;
     const wait = next - performance.now();
@@ -1067,6 +1166,7 @@ async function captureAndExtract(p, frac, interval, rate) {
     await sleep(Math.max(0, wait));
   }
   const runs = det.finish();
+  setStage(3);
   yt.lastRun = { samples: times.length, skipped, outW, outH, rate, interval, qualities: [...qualities],
                  capture: [yt.cap ? yt.cap.videoWidth : 0, yt.cap ? yt.cap.videoHeight : 0] };
   state.lastDetect = { ...det.stats, band: band.rows, bandFallback: band.fallback, prescanPairs: band.used,
